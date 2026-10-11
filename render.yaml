@@ -1,0 +1,22 @@
+# Render Blueprint: free web service. It sleeps after about 15 minutes idle and wakes in under a minute.
+services:
+  - type: web
+    name: brightwood-support-agent
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: PYTHONPATH=src python -m brightwood_support.server
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: GEMINI_API_KEY      # paste in the Render dashboard; never commit it
+        sync: false
+      - key: GEMINI_MODEL        # a Gemini model id you have access to, for example one from aistudio.google.com
+        sync: false
+      - key: STRIPE_SECRET_KEY   # a TEST key (sk_test_...) from dashboard.stripe.com/test/apikeys; live keys are refused
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET  # optional: the whsec_... secret of a test-mode webhook pointing at /api/stripe/webhook
+        sync: false
+      - key: DAILY_AI_CALLS      # hard cap on real-model calls per day; the offline assistant answers after it
+        value: "150"
