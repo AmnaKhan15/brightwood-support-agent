@@ -146,28 +146,24 @@ export function Chat() {
       aria-label="Support chat"
       className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[640px] sm:w-[400px]"
     >
-      <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-        <div className="grid size-9 place-items-center rounded-xl bg-brand-soft text-brand" aria-hidden>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="7" width="16" height="12" rx="4" /><path d="M12 7V4M9 13h.01M15 13h.01" /></svg>
+      <div className="flex flex-col gap-2 border-b border-line px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand" aria-hidden>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="7" width="16" height="12" rx="4" /><path d="M12 7V4M9 13h.01M15 13h.01" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <b className="block truncate">Brightwood support</b>
+            <small className="block truncate text-muted">{me?.name ?? "…"} · AI assistant</small>
+          </div>
+          <Button size="sm" variant="ghost" aria-label="Close chat" onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>✕</Button>
         </div>
-        <div className="min-w-0 flex-1">
-          <b className="block truncate">Brightwood support</b>
-          <small className="text-muted">{me?.name ?? "…"} · AI assistant</small>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" aria-pressed={voiceOut} title="Read answers aloud"
+            onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) window.speechSynthesis?.cancel(); }}>
+            Voice: {voiceOut ? "on" : "off"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setDrawerOpen(true)}>Behind the scenes</Button>
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-pressed={voiceOut}
-          title="Read answers aloud"
-          onClick={() => {
-            setVoiceStored(voiceOut ? "0" : "1");
-            if (voiceOut) window.speechSynthesis?.cancel();
-          }}
-        >
-          Voice: {voiceOut ? "on" : "off"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setDrawerOpen(true)}>Behind the scenes</Button>
-        <Button size="sm" variant="ghost" aria-label="Close chat" onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>✕</Button>
       </div>
 
       <div ref={log} className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4" aria-live="polite">
@@ -203,7 +199,7 @@ export function Chat() {
         {busy && <div className="typing self-start rounded-2xl bg-surface-2 px-3 py-2.5" aria-label="Assistant is typing"><i /><i /><i /></div>}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto px-3 pb-2">
+      <div className="flex gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none]">
         {(CHIPS[customer] ?? []).map(([t, warn]) => (
           <button
             key={t}

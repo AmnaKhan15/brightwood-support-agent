@@ -84,6 +84,7 @@ export function Inspector() {
           ) : tab === "flow" ? (
             <ol className="flex flex-col gap-4">
               {[
+                ...i.steps.filter((s) => s.title.startsWith("The supervisor")).map((s) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> })),
                 {
                   kind: "", title: "You typed",
                   body: <>
@@ -114,7 +115,7 @@ export function Inspector() {
                       </div>,
                     }]
                   : []),
-                ...i.steps.map((s) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> })),
+                ...i.steps.filter((s) => !s.title.startsWith("The supervisor")).map((s) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> })),
                 {
                   kind: "ok", title: "Answer sent",
                   body: <p className="text-sm text-muted">

@@ -115,7 +115,7 @@ export default function Staff() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <Card className="flex flex-col gap-4">
             <h2 className="text-lg font-bold">Refunds waiting for a person</h2>
             <SignIn />
@@ -152,7 +152,7 @@ export default function Staff() {
           </Card>
         </div>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <Card className="flex flex-col gap-3">
             <Eyebrow>Business outcomes · last {m?.window_days ?? 7} days, all visitors</Eyebrow>
             <h2 className="text-lg font-bold">Is the assistant doing its job?</h2>
