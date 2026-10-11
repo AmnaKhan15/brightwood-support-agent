@@ -12,10 +12,11 @@ SEMANTIC_FLOOR is a calibration constant: check it with `evals/run_retrieval_eva
 from __future__ import annotations
 
 import logging
-import math
 import threading
 from collections import OrderedDict
 from typing import Protocol
+
+from .embeddings import normalize
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +31,6 @@ class SemanticEmbedder(Protocol):
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
     def embed_query(self, text: str) -> list[float]: ...
-
-
-def normalize(vec: list[float]) -> list[float]:
-    n = math.sqrt(sum(v * v for v in vec))
-    return [v / n for v in vec] if n else vec
 
 
 def semantic_scaled(cosine: float) -> float:

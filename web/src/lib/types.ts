@@ -44,7 +44,7 @@ export type GatewayReport = {
   degraded: number;
 };
 
-export type Step = { kind: "ok" | "wait" | "no" | ""; title: string; detail: string; data?: string; status?: string };
+export type Step = { kind: "ok" | "wait" | "no" | ""; title: string; detail: string; data?: string; status?: string; tool?: string };
 
 export type Inspect = {
   run_id: number;
@@ -55,6 +55,8 @@ export type Inspect = {
   route: string | null;
   agent: string | null;
   route_reason: string | null;
+  routing: { agent: string; reason: string; tools: string[] } | null;
+  fell_back: boolean;
   millis: number;
   tokens: number;
   typed: string;

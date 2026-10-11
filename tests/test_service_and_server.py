@@ -32,7 +32,11 @@ class ServiceTests(unittest.TestCase):
     def test_the_supervisor_picks_a_specialist_and_it_shows_in_the_inspector(self):
         r = self.svc.chat(self.sid, "C2", "Refund order O2001")
         self.assertEqual(r["inspect"]["agent"], "billing")
-        self.assertIn("billing agent", r["inspect"]["steps"][0]["title"])
+        self.assertEqual(r["inspect"]["routing"]["agent"], "billing")
+        self.assertIn("request_refund", r["inspect"]["routing"]["tools"])
+        policy = self.svc.chat(self.svc.create_session(), "C1", "Is shipping free?")["inspect"]["routing"]
+        self.assertEqual(policy["agent"], "policy")
+        self.assertNotIn("request_refund", policy["tools"])
 
     def test_history_carries_across_turns(self):
         self.svc.chat(self.sid, "C1", "Where is order O1002?")

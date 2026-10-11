@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 from .agent import Reply, ToolCall
+from .config import env_flag
 
 
 def tool_schema(spec: dict) -> dict:
@@ -69,9 +70,18 @@ class LangChainModel:
         self._chat = chat_model
         self.name = name
         self._counter = 0
+        self._bound: dict[tuple[str, ...], object] = {}  # one binding per tool set (a specialist has a fixed set)
+
+    def _with_tools(self, tool_specs: list[dict]):
+        if not tool_specs:
+            return self._chat
+        key = tuple(s["name"] for s in tool_specs)
+        if key not in self._bound:
+            self._bound[key] = self._chat.bind_tools([tool_schema(s) for s in tool_specs])
+        return self._bound[key]
 
     def next(self, messages: list[dict], tool_specs: list[dict]) -> Reply:
-        model = self._chat.bind_tools([tool_schema(s) for s in tool_specs]) if tool_specs else self._chat
+        model = self._with_tools(tool_specs)
         ai = model.invoke(to_langchain(messages))
         calls = []
         for tc in getattr(ai, "tool_calls", None) or []:
@@ -81,24 +91,27 @@ class LangChainModel:
         return Reply(text=_text(ai.content) or None, tool_calls=calls, tokens=int(usage.get("total_tokens", 0)))
 
 
-def GeminiModel(model: str | None = None, api_key: str | None = None, timeout: float = 20.0, env=os.environ) -> LangChainModel:  # noqa: N802
-    """Gemini via langchain-google-genai. Retries are left to the gateway, which falls back instead of waiting.
-
-    With GEMINI_USE_VERTEX=true the model is called on Vertex AI instead of the Gemini API (Google Cloud
-    credentials, GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION). That is how a fine-tuned model is served:
-    set GEMINI_MODEL to the tuned model's endpoint.
-    """
+def gemini_chat(model: str, env=os.environ, timeout: float = 20.0, max_retries: int = 1):
+    """A LangChain Gemini chat model from the environment: the Gemini API with GEMINI_API_KEY, or Vertex AI
+    with GEMINI_USE_VERTEX=true (Google Cloud credentials, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION).
+    Vertex is how a fine-tuned model is served: set the model to the tuned endpoint."""
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    model = model or env.get("GEMINI_MODEL", "")
-    if env.get("GEMINI_USE_VERTEX", "").lower() in ("1", "true", "yes"):
-        if not model:
-            raise ValueError("GEMINI_MODEL must be set")
-        chat = ChatGoogleGenerativeAI(model=model, vertexai=True, project=env.get("GOOGLE_CLOUD_PROJECT"),
-                                      location=env.get("GOOGLE_CLOUD_LOCATION", "us-central1"), temperature=0, max_retries=1, timeout=timeout)
-        return LangChainModel(chat, f"vertex:{model}")
-    api_key = api_key or env.get("GEMINI_API_KEY", "")
-    if not model or not api_key:
-        raise ValueError("GEMINI_MODEL and GEMINI_API_KEY must be set")
-    chat = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0, max_retries=1, timeout=timeout)
-    return LangChainModel(chat, f"gemini:{model}")
+    if not model:
+        raise ValueError("a Gemini model id is required")
+    common = {"model": model, "temperature": 0, "max_retries": max_retries, "timeout": timeout}
+    if env_flag(env, "GEMINI_USE_VERTEX"):
+        return ChatGoogleGenerativeAI(**common, vertexai=True, project=env.get("GOOGLE_CLOUD_PROJECT"),
+                                      location=env.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
+    if not env.get("GEMINI_API_KEY"):
+        raise ValueError("GEMINI_API_KEY must be set")
+    return ChatGoogleGenerativeAI(**common, google_api_key=env["GEMINI_API_KEY"])
+
+
+def gemini_configured(env) -> bool:
+    return bool(env.get("GEMINI_MODEL") and (env.get("GEMINI_API_KEY") or env_flag(env, "GEMINI_USE_VERTEX")))
+
+
+def GeminiModel(model: str, env=os.environ, timeout: float = 20.0) -> LangChainModel:  # noqa: N802
+    """Gemini for the agents. Retries are left to the gateway, which falls back instead of waiting."""
+    return LangChainModel(gemini_chat(model, env, timeout), f"gemini:{model}")

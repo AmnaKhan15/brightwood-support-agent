@@ -132,6 +132,11 @@ class Gateway:
         self._local.provider = value
 
     @property
+    def last_fell_back(self) -> bool:
+        """Whether the last answer on this thread came from a provider other than the first choice."""
+        return getattr(self._local, "fell_back", False)
+
+    @property
     def last_route(self) -> str | None:
         return getattr(self._local, "route", None)
 
@@ -161,7 +166,8 @@ class Gateway:
                 continue
             st.total_seconds += self._clock() - start
             provider.breaker.record_success()
-            if index > 0 or errors:
+            self._local.fell_back = index > 0 or bool(errors)
+            if self._local.fell_back:
                 self.fallbacks += 1
             self.last_provider = provider.name
             return reply
@@ -173,6 +179,7 @@ class Gateway:
             self.cache_hits += 1
             reply, made_by = self._cache[key]
             self.last_provider, self.last_route = f"{made_by} (cached)", "cache"
+            self._local.fell_back = False
             return reply
 
         tier = self._router(messages)

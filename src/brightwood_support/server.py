@@ -11,13 +11,6 @@ import os
 import secrets
 import time
 
-if __name__ == "__main__":  # load .env before anything reads the environment (jobs.py picks its broker at import)
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .auth import AuthError, Forbidden
+from .config import env_flag
 from .payments import PaymentError
 from .service import NoSuchSession, RateLimited, Service
 from .telemetry import request_id, setup_logging, setup_otel
@@ -191,6 +185,9 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv()
     setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
     import uvicorn
 
@@ -199,7 +196,7 @@ def main() -> None:
     service = Service(daily_ai_calls=int(os.environ.get("DAILY_AI_CALLS", "150")))
     app = create_app(service)
     setup_otel(app, os.environ, service.version)
-    if os.environ.get("EMBEDDED_WORKER", "true").lower() in ("1", "true", "yes"):
+    if env_flag(os.environ, "EMBEDDED_WORKER", default=True):
         jobs.start_embedded_worker()
     port = int(os.environ.get("PORT", "8000"))
     log.info("starting", extra={"ctx": {"port": port, **{k: v for k, v in service.health().items() if k != "gateway"}}})

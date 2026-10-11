@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { Row } from "@/lib/types";
 import { useApp } from "./providers";
-import { Button, Note, ScoreBar, Stat, Table, cx } from "./ui";
+import type { Step } from "@/lib/types";
+import { Button, GatewayTable, Note, Passage, Stat, Table, cx } from "./ui";
 
 const TABS = [
   ["flow", "This question"],
@@ -18,6 +19,8 @@ const TABLES = ["messages", "runs", "approvals", "orders", "tickets", "refunds",
 function Code({ children }: { children: string }) {
   return <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-3 font-mono text-xs [overflow-wrap:anywhere]">{children}</pre>;
 }
+
+const stepItem = (s: Step) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> });
 
 function Database() {
   const { api, sid } = useApp();
@@ -84,7 +87,10 @@ export function Inspector() {
           ) : tab === "flow" ? (
             <ol className="flex flex-col gap-4">
               {[
-                ...i.steps.filter((s) => s.title.startsWith("The supervisor")).map((s) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> })),
+                ...(i.routing ? [{
+                  kind: "ok", title: `The supervisor chose the ${i.routing.agent} agent`,
+                  body: <><p className="text-sm text-muted">{i.routing.reason}. That agent only has the tools its job needs.</p><Code>{i.routing.tools.join(", ")}</Code></>,
+                }] : []),
                 {
                   kind: "", title: "You typed",
                   body: <>
@@ -105,17 +111,11 @@ export function Inspector() {
                       kind: "", title: `Found in the help articles (${i.retrieval} search)`,
                       body: <div className="flex flex-col gap-2">
                         <p className="text-sm text-muted">These passages were handed to the AI as its context. A higher score means a closer match.</p>
-                        {i.retrieved.map((r) => (
-                          <div key={r.id} className="rounded-lg border border-line p-3">
-                            <div className="mb-1 flex justify-between font-mono text-xs"><span className="text-brand">{r.id}</span><span>{r.score.toFixed(2)}</span></div>
-                            <ScoreBar score={r.score} />
-                            <p className="mt-2 text-sm">{r.text}</p>
-                          </div>
-                        ))}
+                        {i.retrieved.map((r) => <Passage key={r.id} id={r.id} score={r.score} text={r.text} />)}
                       </div>,
                     }]
                   : []),
-                ...i.steps.filter((s) => !s.title.startsWith("The supervisor")).map((s) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> })),
+                ...i.steps.map(stepItem),
                 {
                   kind: "ok", title: "Answer sent",
                   body: <p className="text-sm text-muted">
@@ -165,8 +165,7 @@ export function Inspector() {
               <div className="flex flex-col gap-2">
                 <h3 className="font-semibold">Gateway</h3>
                 <p className="text-sm text-muted">It tries providers in order, skips one that keeps failing (circuit breaker), reuses repeated answers (cache) and degrades instead of stopping.</p>
-                <Table head={["provider", "calls", "failures", "skipped", "avg s"]}
-                  rows={Object.entries(i.gateway.providers).map(([n, p]) => [n, p.calls, p.failures, p.skipped_open, p.avg_seconds])} />
+                <GatewayTable providers={i.gateway.providers} />
                 <p className="text-xs text-muted">cache hits: {i.gateway.cache_hits} · fallbacks: {i.gateway.fallbacks} · degraded: {i.gateway.degraded}</p>
               </div>
             </div>

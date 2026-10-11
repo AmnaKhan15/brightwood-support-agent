@@ -21,6 +21,7 @@ import random
 import re
 
 from .guardrails import mask_private
+from .rag.embeddings import tokens
 
 # --- 1. prompts -----------------------------------------------------------------------
 
@@ -46,15 +47,11 @@ TEMPLATES = {
 }
 
 
-def _norm(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
-
-
 def overlaps(text: str, held_out: list[str], threshold: float = 0.6) -> bool:
     """True if `text` is close to any held-out eval message (word Jaccard), so it must not be trained on."""
-    a = _norm(text)
+    a = set(tokens(text))
     for other in held_out:
-        b = _norm(other)
+        b = set(tokens(other))
         if a and b and len(a & b) / len(a | b) >= threshold:
             return True
     return False

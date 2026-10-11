@@ -23,30 +23,25 @@ import os
 import secrets
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from . import jobs, workflows
-from .agent import SYSTEM_PROMPT, KeywordRouter, LLMRouter, run_agent
+from .agent import GENERALIST, SPECIALISTS, KeywordRouter, LLMRouter, run_agent
 from .approvals import ROLE_RANK, ApprovalQueue, ShopApprovals
 from .auth import AuthError, Forbidden, role_of, verify_token
+from .config import env_flag
 from .db import Backend, backend_from_env
 from .gateway import Gateway, Provider
 from .guardrails import looks_like_injection, mask_private
 from .idp import AUDIENCE, ISSUER, BuiltInIdP
 from .payments import PaymentError, payments_from_env, verify_webhook
 from .playbook import PlaybookModel
-from .rag import (
-    HashingEmbedder,
-    InMemoryStore,
-    PgVectorStore,
-    load_corpus,
-    semantic_from_env,
-)
+from .providers import GeminiModel, gemini_configured
+from .rag import HashingEmbedder, load_corpus, semantic_from_env
 from .runlog import RunLog
 from .shop import Shop
 from .state import AiBudget, RateLimiter, SandboxRegistry, ping, redis_from_env
@@ -83,37 +78,33 @@ class CappedModel:
         return self._model.next(messages, tool_specs)
 
 
-def _live(env) -> bool:
-    vertex = env.get("GEMINI_USE_VERTEX", "").lower() in ("1", "true", "yes")
-    return bool(env.get("GEMINI_MODEL") and (env.get("GEMINI_API_KEY") or vertex))
-
-
 def build_gateway(budget: AiBudget, env=os.environ) -> Gateway:
-    from .providers import GeminiModel
-
     offline = lambda: Provider("offline-assistant", PlaybookModel(), timeout=5)  # noqa: E731
     fast, strong = [], []
-    if _live(env):
-        fast.append(Provider("gemini-fast", CappedModel(GeminiModel(env["GEMINI_MODEL"], env.get("GEMINI_API_KEY"), env=env), budget), timeout=15))
+    if gemini_configured(env):
+        fast.append(Provider("gemini-fast", CappedModel(GeminiModel(env["GEMINI_MODEL"], env), budget), timeout=15))
         strong_id = env.get("GEMINI_STRONG_MODEL") or env["GEMINI_MODEL"]
-        strong.append(Provider("gemini-strong", CappedModel(GeminiModel(strong_id, env.get("GEMINI_API_KEY"), timeout=25, env=env), budget), timeout=25))
+        strong.append(Provider("gemini-strong", CappedModel(GeminiModel(strong_id, env, timeout=25), budget), timeout=25))
     return Gateway({"fast": fast + [offline()], "strong": strong + [offline()]})
 
 
 def build_router(budget: AiBudget, env=os.environ):
-    if _live(env):
-        from .providers import GeminiModel
-        return LLMRouter(CappedModel(GeminiModel(env["GEMINI_MODEL"], env.get("GEMINI_API_KEY"), timeout=8, env=env), budget))
+    if gemini_configured(env):
+        return LLMRouter(CappedModel(GeminiModel(env["GEMINI_MODEL"], env, timeout=8), budget))
     return KeywordRouter()
 
 
-def build_checkpointer(backend: Backend):
-    if getattr(backend, "pool", None) is not None:
-        from langgraph.checkpoint.postgres import PostgresSaver
-        saver = PostgresSaver(backend.pool, serde=SERDE)
-        saver.setup()
-        return saver
-    return InMemorySaver(serde=SERDE)
+def chat_thread(sid: str, cid: str) -> str:
+    return f"chat:{sid}:{cid}"
+
+
+def deciding_key(sid: str, approval_id: int) -> str:
+    """Redis marker that a decision on this approval is being carried out (blocks double submits)."""
+    return f"bw:deciding:{sid}:{approval_id}"
+
+
+def _last(spans: list[dict], key: str):
+    return next((sp["attrs"].get(key) for sp in reversed(spans) if sp["attrs"].get(key)), None)
 
 
 class Session:
@@ -121,13 +112,15 @@ class Session:
         self.id = sid
         self.shop = shop
         self.help_store = help_store
+        self.customers = shop.customers()  # fixed seed data: read once per sandbox
+        self.names = {c["id"]: c["name"] for c in self.customers}
         self.queues: dict[str, ApprovalQueue] = {}
         self.toolboxes: dict[str, object] = {}
         self.inspect: dict[str, dict] = {}
         self.lock = threading.RLock()
 
     def customer(self, cid: str):
-        if cid not in {c["id"] for c in self.shop.customers()}:
+        if cid not in self.names:
             raise KeyError(cid)
         if cid not in self.toolboxes:
             tb = build_toolbox(self.help_store, self.shop, cid)
@@ -136,11 +129,11 @@ class Session:
         return self.toolboxes[cid], self.queues[cid]
 
     def find_queue(self, approval_id: int):
-        for c in self.shop.customers():
-            _, q = self.customer(c["id"])
-            if q.has(approval_id):
-                return c["id"], q
-        raise KeyError(approval_id)
+        row = self.shop.approval(approval_id)
+        if row is None:
+            raise KeyError(approval_id)
+        _, queue = self.customer(row["customer_id"])
+        return row["customer_id"], queue
 
 
 class Service:
@@ -151,31 +144,27 @@ class Service:
         self.redis = redis if redis is not None else redis_from_env(env)
         self.registry = SandboxRegistry(self.redis)
         self.limiter = RateLimiter(self.redis, clock)
-        semantic = semantic_from_env(env)
-        if self.backend.persistent:
-            self.help_store = PgVectorStore(self.backend.main, HashingEmbedder(), semantic)
-        else:
-            self.help_store = InMemoryStore(HashingEmbedder(), semantic)
+        self.help_store = self.backend.help_store(HashingEmbedder(), semantic_from_env(env))
         self.help_store.add(load_corpus(HELP_DIR))
         self.budget = AiBudget(daily_ai_calls, r=self.redis)
         self.gateway = build_gateway(self.budget, env)
         self.router = build_router(self.budget, env)
-        self.checkpointer = build_checkpointer(self.backend)
+        self.checkpointer = self.backend.checkpointer(SERDE)
         self.approvals = workflows.build_approval_graph(self._carry_out, self.checkpointer)
         self.runlog = RunLog(self.backend.main)
         self.idp = BuiltInIdP()
         self.payments = payments_from_env(env)
         self.webhook_secret = env.get("STRIPE_WEBHOOK_SECRET", "")
-        self.live_model = _live(env)
+        self.live_model = gemini_configured(env)
         self.price_per_1k = float(env["MODEL_PRICE_PER_1K_TOKENS"]) if env.get("MODEL_PRICE_PER_1K_TOKENS") else None
-        self.demo_staff = env.get("DEMO_STAFF_LOGIN", "").lower() in ("1", "true", "yes")
+        self.demo_staff = env_flag(env, "DEMO_STAFF_LOGIN")
         self.staff_code = env.get("STAFF_ACCESS_CODE", "")
         self.version = (env.get("RENDER_GIT_COMMIT") or env.get("GIT_COMMIT") or "dev")[:12]
         self.sessions: dict[str, Session] = {}
         self.ttl, self.max_sessions, self.per_minute, self._clock = ttl, max_sessions, per_minute, clock
         self.started = clock()
         self._lock = threading.RLock()
-        jobs.bind(self)
+        jobs.configure(self, env.get("REDIS_URL", ""))
 
     # --- sandboxes ------------------------------------------------------------------
     def _open(self, sid: str, create: bool) -> Session | None:
@@ -185,10 +174,11 @@ class Service:
         return Session(sid, Shop(db, payments=self.payments, seed=create), self.help_store)
 
     def _drop(self, sid: str) -> None:
-        s = self.sessions.pop(sid, None)
-        threads = [f"chat:{sid}:{c}" for c in ("C1", "C2", "C3")]
-        if s is not None:
-            threads += [f"approval:{sid}:{a['id']}" for a in s.shop.approvals()]
+        s = self.sessions.pop(sid, None) or self._open(sid, create=False)
+        threads = []
+        if s is not None:  # the sandbox's conversations and approval workflows live in the checkpointer
+            threads = [chat_thread(sid, c["id"]) for c in s.customers]
+            threads += [workflows.thread(sid, a["id"])["configurable"]["thread_id"] for a in s.shop.approvals()]
         for t in threads:
             try:
                 self.checkpointer.delete_thread(t)
@@ -257,32 +247,34 @@ class Service:
             result = run_agent(
                 self.gateway, toolbox, queue, text, mask=masker, max_steps=6, max_tokens=12_000, tracer=tracer,
                 system_suffix=VOICE_SUFFIX if voice else "", router=self.router,
-                checkpointer=self.checkpointer, thread_id=f"chat:{sid}:{cid}", price_per_1k_tokens=self.price_per_1k,
+                checkpointer=self.checkpointer, thread_id=chat_thread(sid, cid), price_per_1k_tokens=self.price_per_1k,
             )
             millis = round((time.perf_counter() - started) * 1000)
 
             final = result.final_text or self._fallback_text(result.stopped)
             spans = [sp for sp in result.trace if sp["name"] == "model_call"]
-            provider = next((sp["attrs"].get("provider") for sp in reversed(spans) if sp["attrs"].get("provider")), None)
-            route = next((sp["attrs"].get("route") for sp in reversed(spans) if sp["attrs"].get("route")), None)
+            provider, route = _last(spans, "provider"), _last(spans, "route")
+            fell_back = any(sp["attrs"].get("fell_back") for sp in spans)
+            new_items = [item for item in queue.pending() if item.id not in before]
 
-            run_id = s.shop.log_run(cid, result.stopped, result.steps, result.tokens,
-                                    ",".join(t["tool"] for t in result.tool_log), provider, route, millis, result.agent)
-            m1 = s.shop.log_message(cid, "customer", masked, run_id)
-            m2 = s.shop.log_message(cid, "assistant", final, run_id)
-            if injected:
-                s.shop.log_audit("guardrail", "system", "rule_change_attempt", f"customer {cid} message flagged: {masked[:120]}")
-            for item in queue.pending():
-                if item.id not in before:
+            with s.shop.batch():  # the turn's record in one transaction
+                run_id = s.shop.log_run(cid, result.stopped, result.steps, result.tokens,
+                                        ",".join(t["tool"] for t in result.tool_log), provider, route, millis, result.agent)
+                m1 = s.shop.log_message(cid, "customer", masked, run_id)
+                m2 = s.shop.log_message(cid, "assistant", final, run_id)
+                if injected:
+                    s.shop.log_audit("guardrail", "system", "rule_change_attempt", f"customer {cid} message flagged: {masked[:120]}")
+                for item in new_items:
                     s.shop.log_audit("ai-assistant", "agent", "refund_requested",
                                      f"approval #{item.id}: refund ${float(item.args['amount']):.2f} on {item.args['order_id']} needs {item.approver}")
-                    workflows.start(self.approvals, sid, cid, item.id)
+            for item in new_items:
+                workflows.start(self.approvals, sid, cid, item.id)
 
-            inspect = self._inspect(s, cid, text, masked, injected, result, final, run_id, (m1, m2), provider, route, millis)
+            inspect = self._inspect(s, cid, text, masked, injected, result, final, run_id, (m1, m2), provider, route, millis, fell_back)
             s.inspect[cid] = inspect
 
         self.runlog.record_run(sid, cid, result.agent, inspect["state"], result.stopped, result.steps, result.tokens, millis,
-                               provider, result.tool_log, injected, self.live_model)
+                               provider, result.tool_log, injected, fell_back)
         labels = {"agent": result.agent or "none", "stopped": result.stopped, "provider": provider or "none"}
         runs_counter.add(1, labels)
         run_latency.record(millis, labels)
@@ -303,7 +295,7 @@ class Service:
             "model_error": "I can't answer right now. Please try again in a moment, or ask for a person.",
         }.get(stopped, "Sorry, something went wrong.")
 
-    def _inspect(self, s, cid, raw, masked, injected, result, final, run_id, message_ids, provider, route, millis) -> dict:
+    def _inspect(self, s, cid, raw, masked, injected, result, final, run_id, message_ids, provider, route, millis, fell_back) -> dict:
         names = {"search_help": "Searched the help articles", "list_orders": "Listed your orders", "get_order": "Looked up an order",
                  "cancel_order": "Cancelled an order", "send_return_label": "Created a return label", "request_refund": "Requested a refund",
                  "escalate_to_human": "Handed over to a person"}
@@ -315,10 +307,6 @@ class Service:
             elif m["role"] == "tool":
                 pairs.append((calls[m["tool_call_id"]], m["content"]))
         steps, retrieved = [], []
-        if result.agent:
-            steps.append({"kind": "ok", "title": f"The supervisor chose the {result.agent} agent",
-                          "detail": f"{result.route_reason or ''}. That agent only has the tools its job needs.",
-                          "data": ", ".join(t["name"] for t in s.toolboxes[cid].restricted(_agent_tools(result.agent)).specs())})
         if masked != raw:
             steps.append({"kind": "ok", "title": "Hid private details", "detail": "Card numbers, passwords and other people's emails are masked before the AI sees the message.",
                           "data": f"you typed: {masked}"})
@@ -343,7 +331,7 @@ class Service:
                 title = f"{title}: refused by the store's rules"
             elif entry["status"] == "rejected":
                 title = f"{title}: not allowed for this agent or bad arguments"
-            steps.append({"kind": kind, "title": title, "detail": detail, "data": output[:600], "status": entry["status"]})
+            steps.append({"kind": kind, "title": title, "detail": detail, "data": output[:600], "status": entry["status"], "tool": call.name})
         state = "ok"
         if result.stopped != "final":
             state = "stopped"
@@ -355,14 +343,18 @@ class Service:
             state = "blocked"
         prompt = [{"role": m["role"], "text": m["content"] if m.get("content") else "; ".join(f"call {c.name}({json.dumps(c.args)})" for c in m.get("tool_calls", []))}
                   for m in result.messages]
+        routing = None
+        if result.agent:
+            routing = {"agent": result.agent, "reason": result.route_reason or "",
+                       "tools": list(SPECIALISTS.get(result.agent, GENERALIST).tools)}
         return {
             "run_id": run_id, "customer": cid, "state": state, "stopped": result.stopped, "provider": provider, "route": route,
-            "agent": result.agent, "route_reason": result.route_reason,
+            "agent": result.agent, "route_reason": result.route_reason, "routing": routing, "fell_back": fell_back,
             "millis": millis, "tokens": result.tokens, "typed": raw, "masked": masked,
             "stored": [{"table": "messages", "id": message_ids[0], "role": "customer"}, {"table": "messages", "id": message_ids[1], "role": "assistant"},
                        {"table": "runs", "id": run_id}],
             "retrieved": retrieved, "steps": steps, "prompt": prompt, "tools": list(result.trace),
-            "summary": result.trace_summary, "system_prompt": SYSTEM_PROMPT,
+            "summary": result.trace_summary,
             "gateway": self.gateway.report(), "retrieval": self.help_store.mode,
         }
 
@@ -394,19 +386,22 @@ class Service:
             try:
                 queue.check(approval_id, role)
             except PermissionError as error:
-                s.shop.log_audit(who, role, "denied_" + ("approve" if approve else "reject"), f"approval #{approval_id}: {error}")
-                raise Forbidden(str(error)) from None
-        marker = f"bw:deciding:{sid}:{approval_id}"
-        if not self.redis.set(marker, who, nx=True, ex=300):
+                self._deny(s, who, role, approve, approval_id, error)
+        if not self.redis.set(deciding_key(sid, approval_id), who, nx=True, ex=300):
             raise ValueError("this approval is already being processed")
         try:
             status = jobs.enqueue(jobs.decide_approval, sid, approval_id, approve, who, role)
         except PaymentError as error:
             raise ValueError(f"The payment provider did not complete the refund, so nothing was refunded and the request is still waiting. {error}") from None
-        finally:
-            if jobs.INLINE:
-                self.redis.delete(marker)
+        except Exception:
+            self.redis.delete(deciding_key(sid, approval_id))  # could not even queue it
+            raise
         return {"id": approval_id, "status": status or "processing", "by": who, "role": role}
+
+    @staticmethod
+    def _deny(s: Session, who: str, role: str, approve: bool, approval_id: int, error: Exception):
+        s.shop.log_audit(who, role, "denied_" + ("approve" if approve else "reject"), f"approval #{approval_id}: {error}")
+        raise Forbidden(str(error)) from None
 
     def finish_decision(self, sid: str, approval_id: int, approve: bool, who: str, role: str) -> str:
         """The job body: resume the paused workflow with this decision."""
@@ -414,9 +409,8 @@ class Service:
             s = self.session(sid)
             cid, _ = s.find_queue(approval_id)
             return workflows.resume(self.approvals, sid, cid, approval_id, {"approve": approve, "by": who, "role": role})
-        finally:
-            if not jobs.INLINE:
-                self.redis.delete(f"bw:deciding:{sid}:{approval_id}")
+        finally:  # inline or queued, the job that carried the decision out releases the marker
+            self.redis.delete(deciding_key(sid, approval_id))
 
     def _carry_out(self, state: workflows.ApprovalState, decision: dict) -> str:
         """The workflow's last step. The queue checks the role again before any money moves."""
@@ -431,18 +425,16 @@ class Service:
                 s.shop.log_audit(who, role, "refund_failed", f"approval #{approval_id}: {error}")
                 raise
             except PermissionError as error:
-                s.shop.log_audit(who, role, "denied_" + ("approve" if approve else "reject"), f"approval #{approval_id}: {error}")
-                raise Forbidden(str(error)) from None
+                self._deny(s, who, role, approve, approval_id, error)
             item = queue.get(approval_id)
             verb = "approved" if approve else "rejected"
             s.shop.log_audit(who, role, verb, f"approval #{approval_id}: refund ${float(item.args['amount']):.2f} on {item.args['order_id']}")
             note = (f"Update: a support manager approved your refund of ${float(item.args['amount']):.2f} for order {item.args['order_id']}." if approve
                     else f"Update: a support manager reviewed your refund request for order {item.args['order_id']} and could not approve it.")
             s.shop.log_message(cid, "system", note)
-            row = next((a for a in s.shop.approvals(cid) if a["id"] == approval_id), None)
-        if row:
-            asked = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-            self.runlog.record_decision(sid, approval_id, verb, role, (datetime.now(timezone.utc) - asked).total_seconds())
+            row = s.shop.approval(approval_id)
+        stamp = lambda t: datetime.strptime(t, "%Y-%m-%d %H:%M:%S")  # noqa: E731
+        self.runlog.record_decision(sid, approval_id, verb, role, (stamp(row["decided_at"]) - stamp(row["created_at"])).total_seconds())
         log.info("approval decided", extra={"ctx": {"approval_id": approval_id, "decision": verb, "role": role}})
         return item.status
 
@@ -450,21 +442,25 @@ class Service:
     def state(self, sid: str, cid: str | None = None) -> dict:
         s = self.session(sid)
         with s.lock:
-            names = {c["id"]: c["name"] for c in s.shop.customers()}
+            rows = s.shop.approvals()
+            pipe = self.redis.pipeline()
+            for a in rows:
+                pipe.exists(deciding_key(sid, a["id"]))
+            deciding = pipe.execute() if rows else []
             approvals = []
-            for a in s.shop.approvals():
-                busy = a["status"] == "pending" and self.redis.exists(f"bw:deciding:{sid}:{a['id']}")
-                approvals.append({"id": a["id"], "customer": names.get(a["customer_id"], a["customer_id"]), "order_id": a["args"].get("order_id"),
+            for a, busy in zip(rows, deciding):
+                busy = busy and a["status"] == "pending"
+                approvals.append({"id": a["id"], "customer": s.names.get(a["customer_id"], a["customer_id"]), "order_id": a["args"].get("order_id"),
                                   "amount": a["args"].get("amount"), "reason": a["args"].get("reason"), "needs": a["approver"],
                                   "status": "processing" if busy else a["status"], "decided_by": a["decided_by"]})
             out = {
-                "customers": s.shop.customers(), "approvals": approvals,
-                "tickets": s.shop.table("tickets"), "refunds": s.shop.table("refunds"),
+                "customers": s.customers, "approvals": approvals,
+                "tickets": s.shop.table("tickets"), "refunds": s.shop.refunds()[::-1],  # newest first, like the other tables
                 "audit": s.shop.table("audit"), "runs": s.shop.table("runs", 20),
                 "pending": sum(1 for a in approvals if a["status"] == "pending"),
             }
             if cid:
-                if cid not in names:
+                if cid not in s.names:
                     raise KeyError(cid)
                 out["orders"] = s.shop.list_orders(cid)
                 out["messages"] = s.shop.messages(cid)
@@ -523,14 +519,10 @@ class Service:
             "ok": True, "version": self.version, "uptime_s": round(self._clock() - self.started),
             "mode": "gemini+offline-fallback" if self.live_model else "offline-assistant",
             "agents": "llm-supervisor" if isinstance(self.router, LLMRouter) else "keyword-supervisor",
-            "database": self.backend.main.dialect, "redis": ping(self.redis), "jobs": "inline" if jobs.INLINE else "redis-queue",
+            "database": self.backend.main.dialect, "redis": ping(self.redis), "jobs": "inline" if jobs.inline() else "redis-queue",
             "payments": self.payments.name, "retrieval": self.help_store.mode, "help_chunks": len(self.help_store),
             "staff_login": "demo" if self.demo_staff else ("access-code" if self.staff_code else "off"),
             "sessions": self.registry.count(), "ai_calls_today": self.budget.used, "ai_daily_cap": self.budget.cap,
             "gateway": self.gateway.report(),
         }
 
-
-def _agent_tools(name: str) -> tuple[str, ...]:
-    from .agent import GENERALIST, SPECIALISTS
-    return SPECIALISTS.get(name, GENERALIST).tools

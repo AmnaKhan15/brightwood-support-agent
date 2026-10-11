@@ -20,11 +20,13 @@ is kept in the checkpoint (Postgres in production), so it survives restarts.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
 
 from .approvals import ApprovalQueue, PendingApproval
 from .guardrails import BudgetExceeded, TokenBudget
@@ -167,14 +169,127 @@ class RunResult:
 
 
 class TurnState(TypedDict, total=False):
-    user: str           # this turn's customer message, already masked
+    """What the graph keeps. Only `history` matters across turns; it is all the checkpointer needs."""
+
+    user: str            # this turn's customer message, already masked
     history: list[dict]  # earlier turns: {"role": "user" | "assistant", "content": ...}
-    messages: list[dict]  # what the model sees this turn
     agent: str
     route_reason: str
     steps: int
     stopped: str | None
     final: str | None
+
+
+@dataclass
+class Turn:
+    """Everything one turn needs that is not saved: the model, tools, limits and this turn's working notes.
+
+    It reaches the nodes as LangGraph runtime context, so the graph itself is compiled once and reused.
+    """
+
+    model: Model
+    toolbox: ToolBox
+    queue: ApprovalQueue
+    mask: Callable[[str], str]
+    router: Router | None
+    tracer: Tracer
+    budget: TokenBudget
+    max_steps: int
+    tool_timeout: float
+    sleep: Callable[[float], None]
+    system_suffix: str
+    tool_log: list[dict] = field(default_factory=list)
+    pending: list[PendingApproval] = field(default_factory=list)
+    messages: list[dict] = field(default_factory=list)  # what the model sees this turn
+    allowed: ToolBox | None = None  # the tools of the chosen specialist
+
+
+def _route(state: TurnState, runtime: Runtime[Turn]) -> dict:
+    t = runtime.context
+    with t.tracer.span("route") as attrs:
+        name, why, tokens = (GENERALIST.name, "single agent", 0) if t.router is None else t.router.route(state["user"])
+        attrs.update(agent=name, reason=why, tokens=tokens)
+    spec = SPECIALISTS.get(name, GENERALIST)
+    t.allowed = t.toolbox.restricted(spec.tools)
+    t.messages = [
+        {"role": "system", "content": SYSTEM_PROMPT + spec.brief + t.system_suffix},
+        *(state.get("history") or [])[-HISTORY_TURNS:],
+        {"role": "user", "content": state["user"]},
+    ]
+    try:
+        t.budget.charge(tokens)
+    except BudgetExceeded:
+        return {"agent": name, "route_reason": why, "steps": 0, "stopped": "cost_cap", "final": None}
+    return {"agent": name, "route_reason": why, "steps": 0, "stopped": None, "final": None}
+
+
+def _call_model(state: TurnState, runtime: Runtime[Turn]) -> dict:
+    t = runtime.context
+    step = state["steps"]
+    if step >= t.max_steps:
+        return {"stopped": "step_cap"}
+    step += 1
+    try:
+        with t.tracer.span("model_call", step=step, agent=state["agent"]) as attrs:
+            reply = t.model.next(t.messages, t.allowed.specs())
+            attrs["tokens"] = reply.tokens
+            attrs["provider"] = getattr(t.model, "last_provider", None)
+            attrs["route"] = getattr(t.model, "last_route", None)
+            attrs["fell_back"] = bool(getattr(t.model, "last_fell_back", False))
+    except Exception:  # noqa: BLE001 - no model could answer: stop cleanly, change nothing
+        return {"steps": step, "stopped": "model_error"}
+    try:
+        t.budget.charge(reply.tokens)
+    except BudgetExceeded:
+        return {"steps": step, "stopped": "cost_cap"}
+    if not reply.tool_calls:
+        return {"steps": step, "stopped": "final", "final": t.mask(reply.text or "")}
+    t.messages.append({"role": "assistant", "tool_calls": reply.tool_calls})
+    return {"steps": step}
+
+
+def _run_tools(state: TurnState, runtime: Runtime[Turn]) -> dict:
+    t = runtime.context
+    for call in t.messages[-1]["tool_calls"]:
+        with t.tracer.span("tool_call", tool=call.name, agent=state["agent"]) as attrs:
+            output = dispatch(call, t.allowed, t.queue, t.pending, t.tool_log, t.tool_timeout, t.sleep)
+            attrs["status"] = t.tool_log[-1]["status"]
+        t.messages.append({"role": "tool", "tool_call_id": call.id, "content": t.mask(output)})
+    return {}
+
+
+def _remember(state: TurnState) -> dict:
+    if state.get("stopped") != "final":
+        return {}
+    turn = [{"role": "user", "content": state["user"]}, {"role": "assistant", "content": state["final"]}]
+    return {"history": [*(state.get("history") or []), *turn][-HISTORY_TURNS:]}
+
+
+def _build_graph(checkpointer):
+    graph = StateGraph(TurnState, context_schema=Turn)
+    graph.add_node("route", _route)
+    graph.add_node("call_model", _call_model)
+    graph.add_node("run_tools", _run_tools)
+    graph.add_node("remember", _remember)
+    graph.add_edge(START, "route")
+    graph.add_conditional_edges("route", lambda s: "remember" if s.get("stopped") else "call_model", ["call_model", "remember"])
+    graph.add_conditional_edges("call_model", lambda s: "run_tools" if s.get("stopped") is None else "remember", ["run_tools", "remember"])
+    graph.add_edge("run_tools", "call_model")
+    graph.add_edge("remember", END)
+    return graph.compile(checkpointer=checkpointer)
+
+
+_graphs: dict[int, tuple[Any, Any]] = {}
+_graphs_lock = threading.Lock()
+
+
+def _graph_for(checkpointer):
+    """One compiled graph per checkpointer (the service has one), built on first use."""
+    with _graphs_lock:
+        key = id(checkpointer)
+        if key not in _graphs or _graphs[key][0] is not checkpointer:
+            _graphs[key] = (checkpointer, _build_graph(checkpointer))
+        return _graphs[key][1]
 
 
 def run_agent(
@@ -196,99 +311,24 @@ def run_agent(
     checkpointer: Any = None,
     thread_id: str | None = None,
 ) -> RunResult:
-    """Run one customer turn. Without a router every tool goes to one generalist agent (the evals use this)."""
-    tracer = tracer or Tracer()
-    budget = TokenBudget(max_tokens)
-    tool_log: list[dict] = []
-    pending: list[PendingApproval] = []
+    """Run one customer turn. Without a router every tool goes to one generalist agent (the evals use this).
 
-    def route(state: TurnState) -> dict:
-        with tracer.span("route") as attrs:
-            if router is None:
-                name, why, tokens = GENERALIST.name, "single agent", 0
-            else:
-                name, why, tokens = router.route(state["user"])
-            attrs.update(agent=name, reason=why, tokens=tokens)
-        try:
-            budget.charge(tokens)
-        except BudgetExceeded:
-            return {"agent": name, "route_reason": why, "steps": 0, "stopped": "cost_cap", "final": None, "messages": []}
-        spec = SPECIALISTS.get(name, GENERALIST)
-        earlier = state.get("history") if checkpointer is not None else history
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT + spec.brief + system_suffix},
-            *(earlier or [])[-HISTORY_TURNS:],
-            {"role": "user", "content": state["user"]},
-        ]
-        return {"agent": name, "route_reason": why, "steps": 0, "stopped": None, "final": None, "messages": messages}
-
-    def call_model(state: TurnState) -> dict:
-        step = state["steps"]
-        if step >= max_steps:
-            return {"stopped": "step_cap"}
-        step += 1
-        spec = SPECIALISTS.get(state["agent"], GENERALIST)
-        allowed = toolbox.restricted(spec.tools)
-        try:
-            with tracer.span("model_call", step=step, agent=spec.name) as attrs:
-                reply = model.next(state["messages"], allowed.specs())
-                attrs["tokens"] = reply.tokens
-                attrs["provider"] = getattr(model, "last_provider", None)
-                attrs["route"] = getattr(model, "last_route", None)
-        except Exception:  # noqa: BLE001 - no model could answer: stop cleanly, change nothing
-            return {"steps": step, "stopped": "model_error"}
-        try:
-            budget.charge(reply.tokens)
-        except BudgetExceeded:
-            return {"steps": step, "stopped": "cost_cap"}
-        if not reply.tool_calls:
-            return {"steps": step, "stopped": "final", "final": mask(reply.text or "")}
-        return {"steps": step, "messages": [*state["messages"], {"role": "assistant", "tool_calls": reply.tool_calls}]}
-
-    def run_tools(state: TurnState) -> dict:
-        spec = SPECIALISTS.get(state["agent"], GENERALIST)
-        allowed = toolbox.restricted(spec.tools)
-        messages = list(state["messages"])
-        for call in messages[-1]["tool_calls"]:
-            with tracer.span("tool_call", tool=call.name, agent=spec.name) as attrs:
-                output = dispatch(call, allowed, queue, pending, tool_log, tool_timeout, sleep)
-                attrs["status"] = tool_log[-1]["status"]
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": mask(output)})
-        return {"messages": messages}
-
-    def remember(state: TurnState) -> dict:
-        if state.get("stopped") != "final":
-            return {}
-        turn = [{"role": "user", "content": state["user"]}, {"role": "assistant", "content": state["final"]}]
-        return {"history": [*(state.get("history") or []), *turn][-HISTORY_TURNS:]}
-
-    def after_model(state: TurnState) -> str:
-        return "run_tools" if state.get("stopped") is None else "remember"
-
-    def after_route(state: TurnState) -> str:
-        return "remember" if state.get("stopped") else "call_model"
-
-    graph = StateGraph(TurnState)
-    graph.add_node("route", route)
-    graph.add_node("call_model", call_model)
-    graph.add_node("run_tools", run_tools)
-    graph.add_node("remember", remember)
-    graph.add_edge(START, "route")
-    graph.add_conditional_edges("route", after_route, ["call_model", "remember"])
-    graph.add_conditional_edges("call_model", after_model, ["run_tools", "remember"])
-    graph.add_edge("run_tools", "call_model")
-    graph.add_edge("remember", END)
-    app = graph.compile(checkpointer=checkpointer)
-
+    With a checkpointer the history comes from (and goes back to) the thread's checkpoint; otherwise from `history`.
+    """
+    turn = Turn(model, toolbox, queue, mask, router, tracer or Tracer(), TokenBudget(max_tokens), max_steps, tool_timeout, sleep, system_suffix)
     config: dict = {"recursion_limit": 2 * max_steps + 10}
+    start: dict = {"user": mask(user_message)}
     if checkpointer is not None:
         config["configurable"] = {"thread_id": thread_id or "default"}
-    final_state = app.invoke({"user": mask(user_message)}, config)
+    else:
+        start["history"] = list(history or [])
+    # One checkpoint at the end of the turn, not one per step: only the history has to survive.
+    final = _graph_for(checkpointer).invoke(start, config, context=turn, durability="exit")
 
     return RunResult(
-        final_state.get("final"), final_state.get("stopped") or "step_cap", final_state.get("steps", 0), budget.used,
-        tool_log, pending, final_state.get("messages", []), trace=tracer.spans,
-        trace_summary=tracer.summary(price_per_1k_tokens), agent=final_state.get("agent"), route_reason=final_state.get("route_reason"),
+        final.get("final"), final.get("stopped") or "step_cap", final.get("steps", 0), turn.budget.used,
+        turn.tool_log, turn.pending, turn.messages, trace=turn.tracer.spans,
+        trace_summary=turn.tracer.summary(price_per_1k_tokens), agent=final.get("agent"), route_reason=final.get("route_reason"),
     )
 
 

@@ -30,13 +30,25 @@ def _text(chunk: Chunk) -> str:
     return f"{chunk.heading}. {chunk.text}"
 
 
-class InMemoryStore:
-    def __init__(self, embedder: Embedder, semantic: SemanticEmbedder | None = None) -> None:
-        self.embedder = embedder
-        self.semantic = semantic
-        self._chunks: list[Chunk] = []
-        self._vectors: list[list[float]] = []
-        self._semantic_vectors: list[list[float]] | None = [] if semantic else None
+def _semantic_query(semantic: SemanticEmbedder | None, query: str) -> list[float] | None:
+    """The query's meaning vector, or None (no model, or the model failed: search falls back to words)."""
+    if semantic is None:
+        return None
+    try:
+        return semantic.embed_query(query)
+    except Exception as error:  # noqa: BLE001
+        log.warning("semantic query failed, falling back to words: %r", error)
+        return None
+
+
+def _ranked(scored: list[tuple[Chunk, float]], k: int) -> list[tuple[Chunk, float]]:
+    # Sort by score, then id, so ties always come out in the same order.
+    scored.sort(key=lambda pair: (-pair[1], pair[0].id))
+    return scored[:k]
+
+
+class _Chunks:
+    _chunks: list[Chunk]
 
     def __len__(self) -> int:
         return len(self._chunks)
@@ -44,6 +56,15 @@ class InMemoryStore:
     @property
     def chunks(self) -> list[Chunk]:
         return list(self._chunks)
+
+
+class InMemoryStore(_Chunks):
+    def __init__(self, embedder: Embedder, semantic: SemanticEmbedder | None = None) -> None:
+        self.embedder = embedder
+        self.semantic = semantic
+        self._chunks: list[Chunk] = []
+        self._vectors: list[list[float]] = []
+        self._semantic_vectors: list[list[float]] | None = [] if semantic else None
 
     @property
     def mode(self) -> str:
@@ -60,35 +81,24 @@ class InMemoryStore:
             self._vectors.append(self.embedder.embed(_text(chunk)))
             self._chunks.append(chunk)
 
-    def _query_semantic(self, query: str) -> list[float] | None:
-        if self._semantic_vectors is None:
-            return None
-        try:
-            return self.semantic.embed_query(query)
-        except Exception as error:  # noqa: BLE001
-            log.warning("semantic query failed, falling back to words: %r", error)
-            return None
-
     def search(self, query: str, k: int = 3) -> list[tuple[Chunk, float]]:
         """Return the top-k (chunk, score) pairs, best first."""
         if not self._chunks:
             return []
         q = self.embedder.embed(query)
-        qs = self._query_semantic(query)
+        qs = _semantic_query(self.semantic if self._semantic_vectors is not None else None, query)
         scored = []
         for i, (c, v) in enumerate(zip(self._chunks, self._vectors)):
             cosine = _dot(qs, self._semantic_vectors[i]) if qs is not None else None
             scored.append((c, hybrid(_dot(q, v), cosine)))
-        # Sort by score, then id, so ties always come out in the same order.
-        scored.sort(key=lambda pair: (-pair[1], pair[0].id))
-        return scored[:k]
+        return _ranked(scored, k)
 
 
 def _vec(v: list[float]) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in v) + "]"
 
 
-class PgVectorStore:
+class PgVectorStore(_Chunks):
     """Help-article chunks in Postgres with pgvector. Re-embeds only when the articles or the model change."""
 
     def __init__(self, db, embedder: Embedder, semantic: SemanticEmbedder | None = None) -> None:
@@ -104,13 +114,6 @@ class PgVectorStore:
         """)
         # No ANN index: with a few dozen chunks an exact scan is faster and exact. Add an HNSW index
         # (vector_cosine_ops) on semantic_vec once the corpus grows past a few thousand chunks.
-
-    def __len__(self) -> int:
-        return len(self._chunks)
-
-    @property
-    def chunks(self) -> list[Chunk]:
-        return list(self._chunks)
 
     @property
     def mode(self) -> str:
@@ -150,26 +153,18 @@ class PgVectorStore:
         qw = self.embedder.embed(query)
         if not any(qw):
             return [(c, 0.0) for c in sorted(self._chunks, key=lambda c: c.id)[:k]]
-        qs = None
-        if self._has_semantic:
-            try:
-                qs = self.semantic.embed_query(query)
-            except Exception as error:  # noqa: BLE001
-                log.warning("semantic query failed, falling back to words: %r", error)
+        qs = _semantic_query(self.semantic if self._has_semantic else None, query)
         by_id = {c.id: c for c in self._chunks}
-        # pgvector's <=> is cosine distance, so 1 - distance is cosine similarity. Postgres computes the
-        # similarities; the hybrid score is applied in Python so both stores rank identically.
-        if qs is not None:
-            rows = self.db.execute(
-                "SELECT id, 1 - (word_vec <=> ?::vector) AS word, 1 - (semantic_vec <=> ?::vector) AS sem FROM help_chunks",
-                (_vec(qw), _vec(qs))).fetchall()
-        else:
-            rows = self.db.execute("SELECT id, 1 - (word_vec <=> ?::vector) AS word, NULL AS sem FROM help_chunks", (_vec(qw),)).fetchall()
+        # pgvector's <=> is cosine distance, so 1 - distance is cosine similarity (NULL when the query has no
+        # meaning vector). Postgres computes the similarities; the hybrid score is applied in Python so both
+        # stores rank identically.
+        rows = self.db.execute(
+            "SELECT id, 1 - (word_vec <=> ?::vector) AS word, 1 - (semantic_vec <=> ?::vector) AS sem FROM help_chunks",
+            (_vec(qw), _vec(qs) if qs is not None else None)).fetchall()
         scored = []
         for r in rows:
             word = 0.0 if r["word"] is None or r["word"] != r["word"] else float(r["word"])  # NaN for an all-zero vector
             sem = None if r["sem"] is None else float(r["sem"])
             if r["id"] in by_id:
                 scored.append((by_id[r["id"]], hybrid(word, sem)))
-        scored.sort(key=lambda pair: (-pair[1], pair[0].id))
-        return scored[:k]
+        return _ranked(scored, k)

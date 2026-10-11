@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import date, datetime, timedelta, timezone
-from typing import Callable
+from contextlib import contextmanager
+from datetime import date, timedelta
+from typing import Callable, Iterator
 
-from .db import ID_COLUMN, Database, SqliteDatabase
+from .db import ID_COLUMN, Database, SqliteDatabase, now_text
 
 RETURN_WINDOW_DAYS = 30
 
@@ -41,7 +42,7 @@ CREATE TABLE payments(order_id TEXT PRIMARY KEY, provider TEXT NOT NULL, ref TEX
 CREATE TABLE tickets(id {id}, customer_id TEXT NOT NULL, order_id TEXT, summary TEXT NOT NULL, created_on TEXT NOT NULL);
 CREATE TABLE return_labels(order_id TEXT PRIMARY KEY, code TEXT NOT NULL, expires_on TEXT NOT NULL);
 CREATE TABLE approvals(id {id}, customer_id TEXT NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL, approver TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, decided_role TEXT, note TEXT, created_at TEXT NOT NULL, decided_at TEXT);
+  status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, decided_role TEXT, created_at TEXT NOT NULL, decided_at TEXT);
 CREATE TABLE messages(id {id}, run_id INTEGER, customer_id TEXT NOT NULL, role TEXT NOT NULL,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE runs(id {id}, customer_id TEXT NOT NULL, stopped TEXT NOT NULL, steps INTEGER NOT NULL,
@@ -69,10 +70,6 @@ def to_cents(amount: float) -> int:
     return round(float(amount) * 100)
 
 
-def now_text() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
 class Shop:
     def __init__(self, db: Database | None = None, today: Callable[[], date] = date.today, payments=None, seed: bool = True) -> None:
         from .payments import SimulatedPayments
@@ -81,11 +78,22 @@ class Shop:
         self._lock = threading.RLock()
         self.db = db or SqliteDatabase()
         if seed:
-            self.db.script(SCHEMA.replace("{id}", ID_COLUMN[self.db.dialect]))
-            self._seed()
+            with self.db.transaction() as tx:  # one round trip set on Postgres, not dozens
+                tx.script(SCHEMA.replace("{id}", ID_COLUMN[self.db.dialect]))
+                self._seed(tx)
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Run several writes in one transaction (one connection, one round trip set on Postgres)."""
+        with self._lock, self.db.transaction() as tx:
+            outer, self.db = self.db, tx
+            try:
+                yield
+            finally:
+                self.db = outer
 
     # --- demo data (invented people and products) ---------------------------
-    def _seed(self) -> None:
+    def _seed(self, db: Database) -> None:
         t = self._today()
 
         def d(days_ago: int) -> str:
@@ -94,7 +102,7 @@ class Shop:
         customers = [("C1", "Sam Rivera", "sam.rivera@example.com"), ("C2", "Priya Nair", "priya.nair@example.com"),
                      ("C3", "Alex Chen", "alex.chen@example.com")]
         for row in customers:
-            self.db.execute("INSERT INTO customers VALUES(?,?,?)", row)
+            db.execute("INSERT INTO customers VALUES(?,?,?)", row)
         #            id      cust  status       placed  shipped  delivered scan  total  ship final address                  tracking
         orders = [
             ("O1001", "C1", "delivered", d(12), d(10), d(6), d(6), 3800, 600, 0, "12 Elm Street, Springfield", "TRK1001"),
@@ -107,14 +115,14 @@ class Shop:
             ("O3002", "C3", "processing", d(0), None, None, None, 4200, 600, 0, "7 Orchard Lane, Maplewood", None),
         ]
         for row in orders:
-            self.db.execute("INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", row)
+            db.execute("INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", row)
         items = [
             ("O1001", "Linen cushion cover set", 3200), ("O1002", "Oak side table", 12900), ("O1003", "Ceramic planter (large)", 6450),
             ("O2001", "Wool throw blanket", 8900), ("O2001", "Ceramic table lamp", 10000), ("O2002", "Glass storage jar", 1800),
             ("O2003", "Clearance stoneware mug", 1300), ("O3001", "Walnut bookshelf", 8800), ("O3002", "Cotton tea towels", 3600),
         ]
         for row in items:
-            self.db.execute("INSERT INTO order_items VALUES(?,?,?)", row)
+            db.execute("INSERT INTO order_items VALUES(?,?,?)", row)
 
     # --- reading -------------------------------------------------------------
     def _order(self, customer_id: str, order_id: str) -> dict:
@@ -257,10 +265,15 @@ class Shop:
             return self.db.execute("INSERT INTO approvals(customer_id, tool, args, approver, created_at) VALUES(?,?,?,?,?) RETURNING id",
                                    (customer_id, tool, json.dumps(args), approver, now_text())).fetchone()["id"]
 
-    def set_approval(self, approval_id: int, status: str, decided_by: str | None, role: str | None, note: str | None = None) -> None:
+    def set_approval(self, approval_id: int, status: str, decided_by: str | None, role: str | None) -> None:
         with self._lock:
-            self.db.execute("UPDATE approvals SET status=?, decided_by=?, decided_role=?, note=?, decided_at=? WHERE id=?",
-                            (status, decided_by, role, note, now_text(), approval_id))
+            self.db.execute("UPDATE approvals SET status=?, decided_by=?, decided_role=?, decided_at=? WHERE id=?",
+                            (status, decided_by, role, now_text(), approval_id))
+
+    def approval(self, approval_id: int) -> dict | None:
+        with self._lock:
+            row = self.db.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        return {**row, "args": json.loads(row["args"])} if row else None
 
     def approvals(self, customer_id: str | None = None) -> list[dict]:
         sql, params = "SELECT * FROM approvals", ()
@@ -276,8 +289,9 @@ class Shop:
             return self.db.execute("SELECT * FROM tickets ORDER BY id").fetchall()
 
     def refunds(self) -> list[dict]:
+        """Every refund, with the customer it belongs to."""
         with self._lock:
-            return self.db.execute("SELECT * FROM refunds ORDER BY id").fetchall()
+            return self.db.execute("SELECT r.*, o.customer_id FROM refunds r JOIN orders o ON o.id = r.order_id ORDER BY r.id").fetchall()
 
     def customers(self) -> list[dict]:
         with self._lock:

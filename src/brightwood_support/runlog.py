@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .db import ID_COLUMN, Database, schema_for
+from .db import ID_COLUMN, Database, now_text, schema_for
 
 # What "good" means for this assistant. Each target is checked by `summary()` and shown to staff.
 TARGETS = {
@@ -25,11 +25,8 @@ TARGETS = {
 }
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _pct(values: list[float], q: float) -> float | None:
+def percentile(values: list[float], q: float) -> float | None:
+    """Nearest-rank percentile (q from 0 to 1), or None for no values."""
     if not values:
         return None
     s = sorted(values)
@@ -47,6 +44,8 @@ class RunLog:
               fell_back INTEGER NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS approval_decisions(id {idc}, sandbox TEXT NOT NULL, approval_id INTEGER NOT NULL,
               decision TEXT NOT NULL, role TEXT NOT NULL, wait_seconds REAL NOT NULL, created_at TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS agent_runs_created ON agent_runs(created_at);
+            CREATE INDEX IF NOT EXISTS approval_decisions_created ON approval_decisions(created_at);
         """)
 
     @staticmethod
@@ -60,19 +59,18 @@ class RunLog:
         return "contained"
 
     def record_run(self, sid: str, customer: str, agent: str | None, state: str, stopped: str, steps: int, tokens: int,
-                   millis: int, provider: str | None, tool_log: list[dict], injected: bool, live_model: bool) -> None:
-        tools = [t["tool"] for t in tool_log if t["status"] == "ok" or t["status"] == "pending_approval"]
+                   millis: int, provider: str | None, tool_log: list[dict], injected: bool, fell_back: bool) -> None:
+        tools = [t["tool"] for t in tool_log if t["status"] in ("ok", "pending_approval")]
         blocks = sum(1 for t in tool_log if t["status"] in ("refused", "rejected"))
-        fell_back = int(live_model and bool(provider) and provider.startswith("offline"))
         self.db.execute(
             "INSERT INTO agent_runs(sandbox, customer_id, agent, outcome, stopped, steps, tokens, millis, provider, tools, rule_blocks, "
             "injection_flag, fell_back, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (schema_for(sid), customer, agent, self.outcome(state, tools), stopped, steps, tokens, millis, provider,
-             ",".join(t["tool"] for t in tool_log), blocks, int(injected), fell_back, _now()))
+             ",".join(t["tool"] for t in tool_log), blocks, int(injected), int(fell_back), now_text()))
 
     def record_decision(self, sid: str, approval_id: int, decision: str, role: str, wait_seconds: float) -> None:
         self.db.execute("INSERT INTO approval_decisions(sandbox, approval_id, decision, role, wait_seconds, created_at) VALUES(?,?,?,?,?,?)",
-                        (schema_for(sid), approval_id, decision, role, max(0.0, wait_seconds), _now()))
+                        (schema_for(sid), approval_id, decision, role, max(0.0, wait_seconds), now_text()))
 
     def summary(self, days: int = 7, price_per_1k_tokens: float | None = None) -> dict:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
@@ -95,13 +93,13 @@ class RunLog:
             "rule_blocks": sum(r["rule_blocks"] for r in runs),
             "injection_flags": sum(r["injection_flag"] for r in runs),
             "fallback_rate": round(sum(r["fell_back"] for r in runs) / n, 4) if n else None,
-            "p50_latency_ms": _pct([r["millis"] for r in runs], 0.5),
-            "p95_latency_ms": _pct([r["millis"] for r in runs], 0.95),
+            "p50_latency_ms": percentile([r["millis"] for r in runs], 0.5),
+            "p95_latency_ms": percentile([r["millis"] for r in runs], 0.95),
             "avg_tokens": round(avg_tokens, 1) if avg_tokens is not None else None,
             "cost_per_conversation_usd": round(avg_tokens / 1000 * price_per_1k_tokens, 6) if avg_tokens is not None and price_per_1k_tokens else None,
             "approvals_decided": len(decisions),
             "approvals_approved": sum(1 for d in decisions if d["decision"] == "approved"),
-            "median_approval_wait_s": _pct([d["wait_seconds"] for d in decisions], 0.5),
+            "median_approval_wait_s": percentile([d["wait_seconds"] for d in decisions], 0.5),
             "by_agent": {a: sum(1 for r in runs if r["agent"] == a) for a in sorted({r["agent"] or "none" for r in runs})},
         }
         targets = []

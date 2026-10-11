@@ -42,7 +42,6 @@ class PendingApproval:
     approver: str  # the minimum role that may approve it
     status: str = "pending"  # pending, approved or rejected
     result: Any = None
-    decided_by: str | None = None
 
 
 class ApprovalStore(Protocol):
@@ -80,7 +79,7 @@ class ShopApprovals:
         self._shop.set_approval(approval_id, status, decided_by, role)
 
     def load(self) -> list[PendingApproval]:
-        return [PendingApproval(r["id"], r["tool"], r["args"], r["approver"], r["status"], decided_by=r["decided_by"])
+        return [PendingApproval(r["id"], r["tool"], r["args"], r["approver"], r["status"])
                 for r in self._shop.approvals(self._customer)]
 
 
@@ -119,11 +118,11 @@ class ApprovalQueue:
     def approve(self, approval_id: int, by_role: str, by: str | None = None) -> Any:
         item = self.check(approval_id, by_role)
         item.result = self._executors[item.tool](**item.args)
-        item.status, item.decided_by = "approved", by
+        item.status = "approved"
         self._store.set(approval_id, "approved", by, by_role)
         return item.result
 
     def reject(self, approval_id: int, by_role: str, by: str | None = None) -> None:
         item = self.check(approval_id, by_role)
-        item.status, item.decided_by = "rejected", by
+        item.status = "rejected"
         self._store.set(approval_id, "rejected", by, by_role)

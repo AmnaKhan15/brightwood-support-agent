@@ -14,7 +14,7 @@ const MONEY = /\b(refund|cancel|money back|reimburse)\b/i;
 const YES = /^(yes|yeah|yep|confirm|go ahead|do it|sure|please do)\b/i;
 const NO = /^(no|nope|cancel that|stop|never mind)\b/i;
 
-type Bubble = { role: Message["role"]; text: string; pendingId?: number };
+type Bubble = { role: Message["role"]; text: string; id?: number };
 
 function withCitations(text: string) {
   return text.split(/(\[[a-z_]+#[a-z0-9-]+\])/g).map((part, i) =>
@@ -46,9 +46,10 @@ export function Chat() {
   const field = useRef<HTMLInputElement>(null);
 
   const me = data?.customers.find((c) => c.id === customer);
-  const stored: Bubble[] = (data?.messages ?? []).map((m) => ({ role: m.role, text: m.text }));
+  const stored: Bubble[] = (data?.messages ?? []).map((m) => ({ role: m.role, text: m.text, id: m.id }));
   const bubbles: Bubble[] = [...stored, ...extra];
-  const lastAssistant = [...(data?.messages ?? [])].reverse().find((m) => m.role === "assistant");
+  // The inspector belongs to the assistant message the last run stored.
+  const inspectedId = inspect?.stored.find((s) => s.table === "messages" && s.role === "assistant")?.id;
 
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
@@ -173,7 +174,7 @@ export function Chat() {
           </div>
         )}
         {bubbles.map((b, i) => {
-          const isLast = !extra.length && inspect && lastAssistant && b.role === "assistant" && b.text === lastAssistant.text && i === stored.length - 1;
+          const isLast = !extra.length && b.id !== undefined && b.id === inspectedId;
           return (
             <div
               key={i}

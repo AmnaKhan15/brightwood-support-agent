@@ -44,7 +44,7 @@ def evaluate(model: str, vertex: bool, price: float | None, judges) -> dict:
             from brightwood_support.judges import grade
             out["judges"] = grade(judges, case["turns"][-1], out["reply"], out["context"], case.get("reference"))
         rows.append(out)
-    return summarize(rows, price, live=True)
+    return summarize(rows, price)
 
 
 def decide(base: dict, cand: dict) -> list[str]:

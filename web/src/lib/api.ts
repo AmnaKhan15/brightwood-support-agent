@@ -16,6 +16,6 @@ export async function newSession(): Promise<string> {
   return ((await res.json()) as { session: string }).session;
 }
 
-export const usd = (n: number | string) => `$${Number(n).toFixed(2)}`;
+export const usd = (n: number | string, digits = 2) => `${Number(n).toFixed(digits)}`;
 export const cents = (n: number | string) => usd(Number(n) / 100);
 export const pct = (n: number | null | undefined) => (n == null ? "–" : `${Math.round(n * 1000) / 10}%`);

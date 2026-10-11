@@ -19,6 +19,12 @@ STOPWORDS = frozenset(
 )
 
 
+def normalize(vec: list[float]) -> list[float]:
+    """Scale to unit length, so a dot product is a cosine similarity. An all-zero vector stays as it is."""
+    n = math.sqrt(sum(v * v for v in vec))
+    return [v / n for v in vec] if n else vec
+
+
 def tokens(text: str) -> list[str]:
     return [t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in STOPWORDS]
 
@@ -51,5 +57,4 @@ class HashingEmbedder:
             index = digest % self.dim
             sign = 1.0 if (digest >> 64) & 1 else -1.0
             vec[index] += sign * weight
-        norm = math.sqrt(sum(v * v for v in vec))
-        return [v / norm for v in vec] if norm else vec
+        return normalize(vec)

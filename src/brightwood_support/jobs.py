@@ -6,14 +6,14 @@ Two kinds of work leave the request path:
                          idempotency key on every refund makes a retry safe.
   - apply_refund_event   a verified Stripe webhook: update the refund's status.
 
-With REDIS_URL set, jobs go to Redis and a worker runs them (embedded in the web process on the
-free tier, or `python -m brightwood_support.worker` as its own process). Without Redis, jobs run
-immediately in the caller's thread, which keeps tests and local runs simple and deterministic.
+`configure(env)` (called by the Service) picks the broker: with REDIS_URL, jobs go to Redis and a
+worker runs them (embedded in the web process on the free tier, or `python -m brightwood_support.worker`
+as its own process). Without Redis, jobs run immediately in the caller's thread, which keeps tests and
+local runs simple and deterministic.
 """
 from __future__ import annotations
 
 import logging
-import os
 
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
@@ -21,23 +21,20 @@ from dramatiq.brokers.stub import StubBroker
 
 log = logging.getLogger(__name__)
 
-_url = os.environ.get("REDIS_URL", "")
-broker = RedisBroker(url=_url) if _url else StubBroker()
+broker: dramatiq.Broker = StubBroker()
 dramatiq.set_broker(broker)
-INLINE = not _url
-
+_inline = True
 _service = None
 
 
-def bind(service) -> None:
-    """Give the jobs the Service they act on (the web app's own, or the worker's)."""
-    global _service
-    _service = service
+def inline() -> bool:
+    """True when jobs run at once in the caller's thread (no Redis configured)."""
+    return _inline
 
 
 def _svc():
     if _service is None:
-        raise RuntimeError("jobs.bind(service) was not called")
+        raise RuntimeError("jobs.configure(...) was not called")
     return _service
 
 
@@ -51,9 +48,26 @@ def apply_refund_event(provider_refund_id: str, status: str) -> int:
     return _svc().apply_refund_status(provider_refund_id, status)
 
 
+ACTORS = (decide_approval, apply_refund_event)
+
+
+def configure(service, redis_url: str = "") -> None:
+    """Bind the jobs to `service` and choose the broker: Redis when a URL is given, inline otherwise."""
+    global broker, _inline, _service
+    _service = service
+    _inline = not redis_url
+    if _inline or isinstance(broker, RedisBroker):
+        return
+    broker = RedisBroker(url=redis_url)
+    dramatiq.set_broker(broker)
+    for actor in ACTORS:
+        actor.broker = broker
+        broker.declare_actor(actor)
+
+
 def enqueue(actor, *args):
     """Run now (no Redis) and return the result, or queue it and return None."""
-    if INLINE:
+    if _inline:
         return actor.fn(*args)
     actor.send(*args)
     return None
@@ -61,7 +75,7 @@ def enqueue(actor, *args):
 
 def start_embedded_worker(threads: int = 2):
     """Run a worker inside this process. Render's free tier has no separate worker service."""
-    if INLINE:
+    if _inline:
         return None
     worker = dramatiq.Worker(broker, worker_threads=threads)
     worker.start()

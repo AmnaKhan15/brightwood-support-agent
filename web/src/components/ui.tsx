@@ -96,6 +96,25 @@ export function ScoreBar({ score }: { score: number }) {
   );
 }
 
+/** One retrieved help passage with its match score (help search and the inspector). */
+export function Passage({ id, score, text, rank }: { id: string; score: number; text: string; rank?: number }) {
+  return (
+    <div className="rounded-xl border border-line p-3">
+      <div className="mb-1 flex justify-between font-mono text-xs">
+        <span className="text-brand">{rank ? `${rank}. ` : ""}{id}</span>
+        <span>{score.toFixed(2)}</span>
+      </div>
+      <ScoreBar score={score} />
+      <p className="mt-2 text-sm">{text}</p>
+    </div>
+  );
+}
+
+/** Per-provider gateway stats (staff health and the inspector). */
+export function GatewayTable({ providers }: { providers: Record<string, { calls: number; failures: number; skipped_open: number; avg_seconds: number }> }) {
+  return <Table head={["provider", "calls", "failures", "skipped", "avg s"]} rows={Object.entries(providers).map(([n, p]) => [n, p.calls, p.failures, p.skipped_open, p.avg_seconds])} />;
+}
+
 const STATE_LABEL: Record<string, [string, Tone]> = {
   ok: ["done", "ok"],
   waiting: ["waiting for a manager", "wait"],

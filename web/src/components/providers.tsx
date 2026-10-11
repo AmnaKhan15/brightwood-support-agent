@@ -158,14 +158,16 @@ export function useApp(): App {
   return ctx;
 }
 
-/** The sandbox state for the signed-in customer: orders, messages, approvals, audit, runs. */
-export function useAppState(options: { poll?: number } = {}) {
+/** The sandbox state for the signed-in customer: orders, messages, approvals, audit, runs.
+ *  Every change goes through a mutation that invalidates it, so a short staleTime avoids refetching on each navigation. */
+export function useAppState(options: { poll?: (data: AppState | undefined) => number | false } = {}) {
   const { api, ready, sid, customer } = useApp();
   return useQuery({
     queryKey: ["state", sid, customer],
     queryFn: () => api<AppState>(`/api/state?customer=${encodeURIComponent(customer)}`),
     enabled: ready,
-    refetchInterval: options.poll,
+    staleTime: 10_000,
+    refetchInterval: options.poll ? (q) => options.poll!(q.state.data) : undefined,
   });
 }
 

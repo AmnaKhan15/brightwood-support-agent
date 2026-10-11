@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useApp } from "@/components/providers";
-import { Button, Card, Eyebrow, Note, ScoreBar } from "@/components/ui";
+import { Button, Card, Eyebrow, Note, Passage } from "@/components/ui";
 import type { Article, SearchHit } from "@/lib/types";
 
 export default function Help() {
@@ -40,13 +40,7 @@ export default function Help() {
         </p>
         {search.error && <Note tone="bad">{(search.error as Error).message}</Note>}
         <div className="flex flex-col gap-2.5">
-          {search.data?.hits.map((h, n) => (
-            <div key={h.id} className="rounded-xl border border-line p-3">
-              <div className="mb-1 flex justify-between font-mono text-xs"><span className="text-brand">{n + 1}. {h.id}</span><span>{h.score.toFixed(2)}</span></div>
-              <ScoreBar score={h.score} />
-              <p className="mt-2 text-sm">{h.text}</p>
-            </div>
-          ))}
+          {search.data?.hits.map((h, n) => <Passage key={h.id} id={h.id} score={h.score} text={h.text} rank={n + 1} />)}
         </div>
       </Card>
       <Card>

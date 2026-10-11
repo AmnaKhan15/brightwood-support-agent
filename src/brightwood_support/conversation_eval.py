@@ -18,6 +18,8 @@ import re
 import time
 from pathlib import Path
 
+from .runlog import percentile
+
 CASES = Path(__file__).resolve().parents[2] / "evals" / "conversations.json"
 CITATION = re.compile(r"\[[a-z_]+#[a-z0-9-]+\]")
 
@@ -37,12 +39,13 @@ def run_case(service, case: dict) -> dict:
     inspect = result["inspect"]
     state = service.state(sid, case["customer"])
     context = "\n".join(f"[{r['id']}] {r['text']}" for r in inspect["retrieved"])
-    tool_outputs = "\n".join(s["data"] for s in inspect["steps"] if s.get("status") == "ok" and "search_help" not in s["detail"])
+    tool_outputs = "\n".join(s["data"] for s in inspect["steps"] if s.get("status") == "ok" and s.get("tool") != "search_help")
     out = {
         "id": case["id"], "reply": result["reply"], "state": result["state"], "agent": inspect.get("agent"),
         "provider": inspect.get("provider"), "tokens": inspect["tokens"], "millis": millis,
-        "tools": [(s["detail"].split("(")[0], s["status"]) for s in inspect["steps"] if "status" in s],
-        "refunds": [r for r in state["refunds"] if r["order_id"].startswith("O" + case["customer"][1])],
+        "fell_back": inspect["fell_back"],
+        "tools": [(s["tool"], s["status"]) for s in inspect["steps"] if "tool" in s],
+        "refunds": [r for r in state["refunds"] if r["customer_id"] == case["customer"]],
         "messages": [m["text"] for m in state["messages"]], "context": (context + "\n" + tool_outputs).strip(),
     }
     service._drop(sid)
@@ -79,21 +82,17 @@ def check(case: dict, out: dict) -> list[str]:
     return fails
 
 
-def summarize(rows: list[dict], price_per_1k: float | None, live: bool) -> dict:
+def summarize(rows: list[dict], price_per_1k: float | None) -> dict:
     n = len(rows)
-    lat = sorted(r["millis"] for r in rows)
+    lat = [r["millis"] for r in rows]
     tokens = [r["tokens"] for r in rows]
-
-    def pct(q):
-        return lat[min(n - 1, round(q * (n - 1)))] if n else None
-
     summary = {
         "cases": n,
         "pass_rate": round(sum(1 for r in rows if not r["failures"]) / n, 4) if n else None,
-        "p50_ms": pct(0.5), "p95_ms": pct(0.95),
+        "p50_ms": percentile(lat, 0.5), "p95_ms": percentile(lat, 0.95),
         "avg_tokens": round(sum(tokens) / n, 1) if n else None,
         "cost_per_conversation_usd": round(sum(tokens) / n / 1000 * price_per_1k, 6) if n and price_per_1k else None,
-        "fell_back_to_offline": sum(1 for r in rows if live and (r["provider"] or "").startswith("offline")),
+        "fell_back_to_offline": sum(1 for r in rows if r["fell_back"]),
     }
     for judge in ("groundedness", "correctness"):
         scored = [r["judges"][judge]["score"] for r in rows if judge in r.get("judges", {})]

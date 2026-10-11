@@ -15,12 +15,12 @@ import os
 
 def judge_model(env=os.environ):
     """The judge: a strong Gemini model, deterministic. A different (stronger) model than the one being graded."""
-    from langchain_google_genai import ChatGoogleGenerativeAI
+    from .providers import gemini_chat
 
     model = env.get("JUDGE_MODEL") or env.get("GEMINI_STRONG_MODEL") or env.get("GEMINI_MODEL")
-    if not (env.get("GEMINI_API_KEY") and model):
-        raise RuntimeError("the judge needs GEMINI_API_KEY and JUDGE_MODEL (or GEMINI_STRONG_MODEL)")
-    return ChatGoogleGenerativeAI(model=model, google_api_key=env["GEMINI_API_KEY"], temperature=0, max_retries=2, timeout=60)
+    if not model:
+        raise RuntimeError("the judge needs JUDGE_MODEL (or GEMINI_STRONG_MODEL) and a Gemini key")
+    return gemini_chat(model, env, timeout=60, max_retries=2)
 
 
 def build_judges(chat_model) -> dict:

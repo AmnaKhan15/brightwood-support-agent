@@ -3,14 +3,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useApp, useAppState, useHealth } from "@/components/providers";
-import { Button, Card, Eyebrow, Note, Pill, Stat, Table } from "@/components/ui";
+import { Button, Card, Eyebrow, GatewayTable, Note, Pill, Stat, Table } from "@/components/ui";
 import { cents, pct, usd } from "@/lib/api";
 import type { Metrics } from "@/lib/types";
 
 function fmt(metric: string, v: number | null) {
   if (v == null) return "–";
   if (metric.endsWith("_rate")) return pct(v);
-  if (metric.endsWith("_usd")) return `$${v.toFixed(4)}`;
+  if (metric.endsWith("_usd")) return usd(v, 4);
   if (metric.endsWith("_ms")) return `${Math.round(v)} ms`;
   if (metric.endsWith("_s")) return v < 120 ? `${Math.round(v)} s` : `${Math.round(v / 60)} min`;
   return String(v);
@@ -83,10 +83,7 @@ export default function Staff() {
   const { api, staff } = useApp();
   const qc = useQueryClient();
   const [note, setNote] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
-  const processing = (d?: { approvals: { status: string }[] }) => !!d?.approvals.some((a) => a.status === "processing");
-  const { data, error } = useAppState();
-  const anyProcessing = processing(data);
-  useAppState({ poll: anyProcessing ? 1500 : undefined });
+  const { data, error } = useAppState({ poll: (d) => (d?.approvals.some((a) => a.status === "processing") ? 1500 : false) });
   const { data: health } = useHealth();
   const metrics = useQuery({ queryKey: ["metrics"], queryFn: () => api<Metrics>("/api/metrics?days=7"), refetchInterval: 15_000 });
 
@@ -100,7 +97,7 @@ export default function Staff() {
     } catch (e) {
       setNote({ tone: "bad", text: (e as Error).message });
     }
-    await qc.invalidateQueries();
+    await Promise.all([qc.invalidateQueries({ queryKey: ["state"] }), qc.invalidateQueries({ queryKey: ["metrics"] })]);
   }
 
   if (error) return <Note tone="bad">{(error as Error).message}</Note>;
@@ -193,8 +190,7 @@ export default function Staff() {
                   <Stat value={`${health.ai_calls_today}/${health.ai_daily_cap}`} label="real-model calls today" />
                   <Stat value={health.sessions} label="live sandboxes" />
                 </div>
-                <Table head={["provider", "calls", "failures", "skipped", "avg s"]}
-                  rows={Object.entries(health.gateway.providers).map(([n, p]) => [n, p.calls, p.failures, p.skipped_open, p.avg_seconds])} />
+                <GatewayTable providers={health.gateway.providers} />
               </>
             )}
           </Card>

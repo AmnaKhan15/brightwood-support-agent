@@ -12,9 +12,7 @@ import time
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
-from opentelemetry import trace
-
-otel_tracer = trace.get_tracer("brightwood-support-agent")
+from .telemetry import tracer as otel_tracer
 
 
 class Tracer:

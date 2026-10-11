@@ -131,7 +131,7 @@ def main() -> int:
               + ("" if not bad else "  <- " + "; ".join(bad)))
 
     price = float(os.environ["MODEL_PRICE_PER_1K_TOKENS"]) if args.live and os.environ.get("MODEL_PRICE_PER_1K_TOKENS") else None
-    summary = summarize(rows, price, args.live)
+    summary = summarize(rows, price)
     print("\n" + json.dumps(summary, indent=2))
     out_dir = ROOT / "evals" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)

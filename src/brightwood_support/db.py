@@ -19,8 +19,10 @@ import hashlib
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Protocol
+from datetime import datetime, timezone
+from typing import Any, Iterable, Iterator, Protocol
 
 
 @dataclass
@@ -40,6 +42,12 @@ class Database(Protocol):
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> Result: ...
     def script(self, sql: str) -> None: ...
+    def transaction(self) -> Iterator["Database"]: ...
+
+
+def now_text() -> str:
+    """The timestamp format every table uses (UTC, second precision)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 ID_COLUMN = {
@@ -66,6 +74,11 @@ class SqliteDatabase:
         with self._lock:
             self._conn.executescript(sql)
 
+    @contextmanager
+    def transaction(self) -> Iterator["SqliteDatabase"]:
+        # In-memory SQLite has no round trips to save; statements simply run in order.
+        yield self
+
 
 def _to_pg(sql: str) -> str:
     return sql.replace("%", "%%").replace("?", "%s")
@@ -91,9 +104,35 @@ class PostgresDatabase:
             return Result(rows, cur.rowcount)
 
     def script(self, sql: str) -> None:
+        with self.transaction() as tx:
+            tx.script(sql)
+
+    @contextmanager
+    def transaction(self) -> Iterator["_Connection"]:
+        """Several statements on one connection, in one transaction, with one search_path."""
         with self._pool.connection() as conn, conn.transaction():
             conn.execute(self._path())
-            conn.execute(sql)
+            yield _Connection(conn)
+
+
+class _Connection:
+    """A Database bound to one open Postgres transaction (see PostgresDatabase.transaction)."""
+
+    dialect = "postgres"
+
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params: Iterable[Any] = ()) -> Result:
+        cur = self._conn.execute(_to_pg(sql), tuple(params))
+        return Result([dict(r) for r in cur.fetchall()] if cur.description else [], cur.rowcount)
+
+    def script(self, sql: str) -> None:
+        self._conn.execute(sql)
+
+    @contextmanager
+    def transaction(self) -> Iterator["_Connection"]:
+        yield self
 
 
 class Backend(Protocol):
@@ -102,6 +141,8 @@ class Backend(Protocol):
 
     def open_sandbox(self, sandbox_id: str, create: bool) -> Database | None: ...
     def drop_sandbox(self, sandbox_id: str) -> None: ...
+    def checkpointer(self, serde): ...
+    def help_store(self, embedder, semantic): ...
 
 
 class SqliteBackend:
@@ -124,6 +165,14 @@ class SqliteBackend:
         with self._lock:
             self._sandboxes.pop(sandbox_id, None)
 
+    def checkpointer(self, serde):
+        from langgraph.checkpoint.memory import InMemorySaver
+        return InMemorySaver(serde=serde)
+
+    def help_store(self, embedder, semantic):
+        from .rag import InMemoryStore
+        return InMemoryStore(embedder, semantic)
+
 
 def schema_for(sandbox_id: str) -> str:
     """A safe, fixed-length schema name. The session id itself never reaches SQL."""
@@ -137,7 +186,6 @@ class PostgresBackend:
         from psycopg.rows import dict_row
         from psycopg_pool import ConnectionPool
 
-        self.url = url
         self.pool = ConnectionPool(
             url, min_size=min_size, max_size=max_size, open=True, name="brightwood",
             kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": None},
@@ -155,6 +203,16 @@ class PostgresBackend:
 
     def drop_sandbox(self, sandbox_id: str) -> None:
         self.main.script(f'DROP SCHEMA IF EXISTS "{schema_for(sandbox_id)}" CASCADE')
+
+    def checkpointer(self, serde):
+        from langgraph.checkpoint.postgres import PostgresSaver
+        saver = PostgresSaver(self.pool, serde=serde)
+        saver.setup()
+        return saver
+
+    def help_store(self, embedder, semantic):
+        from .rag import PgVectorStore
+        return PgVectorStore(self.main, embedder, semantic)
 
     def close(self) -> None:
         self.pool.close()
