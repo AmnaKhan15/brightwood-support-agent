@@ -29,26 +29,6 @@ export function Header() {
           Brightwood
         </Link>
 
-        <div role="group" aria-label="View the app as" className="flex rounded-xl border border-line bg-surface p-0.5">
-          <button
-            type="button"
-            aria-pressed={!staffMode}
-            onClick={() => staffMode && router.push("/")}
-            className={cx("rounded-lg px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
-          >
-            Customer
-          </button>
-          <button
-            type="button"
-            aria-pressed={staffMode}
-            onClick={() => !staffMode && router.push("/staff")}
-            className={cx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
-          >
-            Staff
-            {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
-          </button>
-        </div>
-
         {!staffMode && (
           <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
             {CUSTOMER_NAV.map(([href, label]) => {
@@ -85,6 +65,25 @@ export function Header() {
               </select>
             </label>
           )}
+          <div role="group" aria-label="View the app as" className="flex rounded-xl border border-line bg-surface p-0.5">
+            <button
+              type="button"
+              aria-pressed={!staffMode}
+              onClick={() => staffMode && router.push("/")}
+              className={cx("rounded-lg px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+            >
+              Customer
+            </button>
+            <button
+              type="button"
+              aria-pressed={staffMode}
+              onClick={() => !staffMode && router.push("/staff")}
+              className={cx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+            >
+              Staff
+              {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
+            </button>
+          </div>
           <Button size="sm" variant="ghost" onClick={() => resetSandbox()} disabled={!ready} title="Start over with fresh orders">Reset</Button>
           <Button size="sm" variant="ghost" onClick={toggleTheme} aria-label="Switch light and dark theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>

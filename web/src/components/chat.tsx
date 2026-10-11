@@ -16,10 +16,21 @@ const NO = /^(no|nope|cancel that|stop|never mind)\b/i;
 
 type Bubble = { role: Message["role"]; text: string; id?: number };
 
+// The assistant cites help passages as [article#section], e.g. [refunds#refund-limits-for-the-assistant].
+// Customers see a readable source label instead of the raw id.
+function sourceLabel(id: string) {
+  const section = id.split("#")[1] ?? id;
+  const words = section.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function withCitations(text: string) {
-  return text.split(/(\[[a-z_]+#[a-z0-9-]+\])/g).map((part, i) =>
-    /^\[[a-z_]+#[a-z0-9-]+\]$/.test(part) ? (
-      <span key={i} className="mx-0.5 rounded bg-brand-soft px-1 font-mono text-[0.7rem] text-brand">{part.slice(1, -1)}</span>
+  return text.split(/([[a-z_]+#[a-z0-9-]+])/g).map((part, i) =>
+    /^[[a-z_]+#[a-z0-9-]+]$/.test(part) ? (
+      <span key={i} title={`From the help article: ${part.slice(1, -1).split("#")[0].replace(/_/g, " ")}`}
+        className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-brand-soft px-1.5 text-[0.72rem] font-semibold text-brand">
+        Source: {sourceLabel(part.slice(1, -1))}
+      </span>
     ) : (
       <span key={i}>{part}</span>
     ),
