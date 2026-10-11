@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Then: terraform init && terraform plan && terraform apply
+github_repo     = "AmnaKhan15/brightwood-support-agent"
+render_api_key  = "rnd_..."
+render_owner_id = "usr-..."
+neon_api_key    = "napi_..."
+neon_org_id     = "" # org-... if your Neon account is in an organization
+upstash_email   = "you@example.com"
+upstash_api_key = "..."
+vercel_api_token = "..."
+
+gemini_api_key = "..."
+gemini_model   = "gemini-2.5-flash"
+# gemini_strong_model       = "gemini-2.5-pro"
+# model_price_per_1k_tokens = "0.0004"
+
+demo_staff_login = true
+# staff_access_code = "a long random string"   # with demo_staff_login = false
+
+# Optional: Grafana Cloud (OpenTelemetry) and LangSmith
+# otel_endpoint     = "https://otlp-gateway-prod-us-west-0.grafana.net/otlp"
+# otel_headers      = "Authorization=Basic ..."
+# langsmith_api_key = "lsv2_..."

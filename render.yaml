@@ -1,22 +1,46 @@
-# Render Blueprint: free web service. It sleeps after about 15 minutes idle and wakes in under a minute.
+# Render Blueprint for the Python API (free web service, Docker). The Next.js site deploys on Vercel (root directory: web).
+# infra/terraform creates the whole stack; this blueprint is the click-through alternative for the API alone.
+# Free services sleep after ~15 minutes idle. Sandboxes, approvals and history live in Postgres, so nothing is lost.
 services:
   - type: web
-    name: brightwood-support-agent
-    runtime: python
+    name: brightwood-support-api
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: PYTHONPATH=src python -m brightwood_support.server
+    region: oregon
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
+    buildFilter:
+      ignoredPaths: ["web/**", "infra/**", "finetune/**", "**/*.md"]
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.7"
-      - key: GEMINI_API_KEY      # paste in the Render dashboard; never commit it
+      - key: DATABASE_URL        # Neon connection string (the direct host, not -pooler), with sslmode=require
         sync: false
-      - key: GEMINI_MODEL        # a Gemini model id you have access to, for example one from aistudio.google.com
+      - key: REDIS_URL           # Upstash: rediss://default:<password>@<endpoint>:6379
         sync: false
-      - key: STRIPE_SECRET_KEY   # a TEST key (sk_test_...) from dashboard.stripe.com/test/apikeys; live keys are refused
+      - key: GEMINI_API_KEY      # paste in the dashboard; never commit it
         sync: false
-      - key: STRIPE_WEBHOOK_SECRET  # optional: the whsec_... secret of a test-mode webhook pointing at /api/stripe/webhook
+      - key: GEMINI_MODEL        # a current fast Gemini model id
         sync: false
-      - key: DAILY_AI_CALLS      # hard cap on real-model calls per day; the offline assistant answers after it
+      - key: GEMINI_STRONG_MODEL # optional: a stronger model for decisions
+        sync: false
+      - key: DAILY_AI_CALLS
         value: "150"
+      - key: DEMO_STAFF_LOGIN    # "true" for a public demo; "false" plus STAFF_ACCESS_CODE for real use
+        value: "true"
+      - key: STAFF_ACCESS_CODE
+        sync: false
+      - key: EMBEDDED_WORKER     # the free plan has no worker service, so the API process runs the job worker
+        value: "true"
+      - key: MODEL_PRICE_PER_1K_TOKENS
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT   # optional: Grafana Cloud OTLP endpoint
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS    # optional: Authorization=Basic ...
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY   # optional TEST key (sk_test_...); live keys are refused
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false

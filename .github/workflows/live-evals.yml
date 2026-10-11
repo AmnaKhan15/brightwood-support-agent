@@ -1,0 +1,43 @@
+# Evals against the real model, started by hand (Actions tab > live-evals > Run workflow). They cost tokens, so not on every push.
+# Needs repository secrets GEMINI_API_KEY, GEMINI_MODEL and JUDGE_MODEL (optional: GEMINI_STRONG_MODEL, LANGSMITH_API_KEY, MODEL_PRICE_PER_1K_TOKENS).
+name: live-evals
+on:
+  workflow_dispatch:
+    inputs:
+      langsmith:
+        description: "Also record a LangSmith experiment"
+        type: boolean
+        default: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      GEMINI_STRONG_MODEL: ${{ secrets.GEMINI_STRONG_MODEL }}
+      JUDGE_MODEL: ${{ secrets.JUDGE_MODEL }}
+      MODEL_PRICE_PER_1K_TOKENS: ${{ secrets.MODEL_PRICE_PER_1K_TOKENS }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt "openevals>=0.2,<1"
+      - name: Judge calibration (does the judge agree with human labels?)
+        run: python evals/run_conversation_eval.py --calibrate
+      - name: Retrieval with Gemini embeddings
+        run: python evals/run_retrieval_eval.py --semantic --min-hit 0.85
+      - name: Conversations with Gemini, graded by code and by the judge
+        run: python evals/run_conversation_eval.py --live --judge --min-pass 0.85
+      - name: LangSmith experiment
+        if: ${{ inputs.langsmith }}
+        run: python evals/run_conversation_eval.py --live --judge --langsmith
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-eval-results
+          path: evals/results/

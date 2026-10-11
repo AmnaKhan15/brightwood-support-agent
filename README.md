@@ -1,101 +1,156 @@
 # Brightwood Support Agent
 
-Brightwood Goods is a made-up home goods store. The Brightwood Support Agent is its support assistant: it answers from the store's
-help articles, looks up and acts on a customer's orders, and sends refunds above $50 to a person. The website,
-the assistant, the database and the staff console are all real working software. Only the store's customers,
-orders and products are invented.
+A multi-agent customer-support system for a (fictional) online home-goods store. A **LangGraph supervisor** routes each
+customer message to a **policy**, **orders** or **billing** specialist. The specialists answer from the store's help articles
+(**RAG over pgvector**), look up and act on the customer's real orders through **validated tool calls**, and send refunds
+above a limit to a **human manager** through a durable approval workflow. Every rule that matters (refund limits, return
+windows, data isolation) is enforced in code *below* the model, so a fooled or failing model still cannot break it.
 
-**One-minute explanation.** A customer types a message. The server hides private data, searches the help
-articles, and hands the best passages plus the customer's question to a language model. The model can only ask
-for one of seven tools. The code validates each request, checks the store's rules and the approval limits, runs
-it, and gives the result back until the model can answer. Everything is saved and timed, so any answer can be
-traced. The rules live below the model, so a fooled model still cannot break them.
+The store's customers, orders and products are invented. Everything else is real, running software: the API, the agents,
+the database, the job queue, the staff console, the evals and the deployment.
 
-## Run it
-
-```bash
-pip install -r requirements.txt
-PYTHONPATH=src python -m brightwood_support.server        # http://localhost:8000
-```
-
-With no key set, the built-in offline assistant answers (rules, not an LLM, but it uses the same tools and the
-same safety checks). To use Gemini, set `GEMINI_API_KEY` and `GEMINI_MODEL` (see `.env.example`). The gateway
-then tries Gemini first and falls back to the offline assistant on error, timeout or after `DAILY_AI_CALLS`.
-
-## Deploy free on Render
-
-1. Push this repo to your GitHub. 2. On render.com choose New, Blueprint, pick the repo (it reads `render.yaml`).
-3. In the service's Environment tab add `GEMINI_API_KEY` and `GEMINI_MODEL`. The free service sleeps when idle
-and wakes in under a minute. Recheck Render's and Google's free-tier limits before you launch.
-
-## Payments (Stripe test mode)
-
-With `STRIPE_SECRET_KEY` set to a Stripe **test** key, an allowed refund really calls Stripe: the seeded order
-gets a test payment (card `pm_card_visa`), then Stripe's refund API is called with the amount and an idempotency
-key. The refund id and status are saved, and the orders page links to the refund in the Stripe test dashboard.
-A signed webhook at `/api/stripe/webhook` (secret in `STRIPE_WEBHOOK_SECRET`) updates the status later. Live keys
-(`sk_live_...`) are refused on purpose. With no key, a simulator records fake ids so everything else still works.
-
-## Voice
-
-The chat has a microphone button and a Voice switch. Speech recognition and speech synthesis come from the visitor's
-browser (Chrome, Edge and Safari; Firefox has no recognition), so there is no extra service and no cost. Chrome may send
-the audio to Google to transcribe it, and the page says so. The spoken text goes through the same agent, tools, rules,
-approval gate and masking as typed text. Before any spoken refund or cancellation the page reads the request back and waits
-for a spoken yes. Voice quality depends on the device's installed voices; the voice code is small enough to swap for a
-paid or neural voice later.
-
-## How a message travels
+## Architecture
 
 ```mermaid
 flowchart LR
-  A[Customer message] --> B[Mask private data]
-  B --> C[Search help articles]
-  C --> D[Gateway: route, cache, fallback]
-  D --> E[Model: Gemini or offline assistant]
-  E -->|asks for a tool| F[Validate and check rules]
-  F -->|refund over limit| G[Wait for a manager]
-  F -->|allowed| H[Run tool on the store database]
-  H --> E
-  G -->|signed token with role| I[Approve or reject]
-  E -->|final answer| J[Reply, saved and traced]
+  B[Browser] --> W[Next.js site<br/>Vercel]
+  W -- /api proxy --> A[FastAPI<br/>Render, Docker]
+  A --> S{LangGraph supervisor}
+  S --> P[policy agent]
+  S --> O[orders agent]
+  S --> BI[billing agent]
+  P & O & BI --> G[LLM gateway<br/>routing, cache, fallback,<br/>circuit breaker]
+  G --> GM[Gemini via LangChain]
+  G --> OF[offline assistant]
+  P & O & BI --> T[tools: validate, store rules,<br/>approval gate, timeout, retry]
+  T --> PG[(Postgres + pgvector<br/>Neon)]
+  T -- refund over limit --> AW[approval workflow<br/>LangGraph interrupt]
+  AW -- manager decides --> Q[Dramatiq job<br/>Redis / Upstash]
+  Q --> ST[Stripe test mode]
+  A --> R[(Redis: sandboxes,<br/>rate limits, AI budget)]
+  A -. OTLP .-> GR[Grafana Cloud]
+  S -. traces .-> LS[LangSmith]
 ```
 
-## Concepts and where they live
+## Stack, and why each piece is here
 
-| Concept | What it means here | Code |
+| Layer | Technology | What it does in this project |
 |---|---|---|
-| Retrieval (RAG) | Search the help articles first, give the best passages to the model as context | `rag/`, `data/help/` |
-| Tool calling | The model only asks; code validates and runs; unknown tools and bad arguments are rejected | `tools.py`, `agent.py` |
-| Least privilege | No tool takes a customer id or deletes anything; money moves only via `request_refund` | `tools.py`, `shop.py` |
-| Rules below the model | Cancel/return/refund rules are enforced in the data layer | `shop.py` |
-| Human in the loop | Refunds over $50 (or $100 per chat) wait for a support manager | `approvals.py` |
-| Roles and sign-in | RS256 tokens, issuer/audience/expiry checked, role from the groups claim | `auth.py`, `idp.py` |
-| Prompt injection | Customer text is data; flagged and logged; the rules do not depend on the model behaving | `guardrails.py`, `agent.py` |
-| PII masking | Card numbers, secrets and other people's emails hidden on the way in and out | `guardrails.py` |
-| Voice | Browser speech in and out, spoken-style instruction to the model, read-back before money actions | `web/site/app.js`, `service.py` |
-| Payments | Refunds call Stripe (test mode) after the rules and approval pass; idempotency key; signed webhooks | `payments.py` |
-| LLM gateway | Fast/strong routing, response cache, provider fallback, circuit breaker, per-provider stats | `gateway.py`, `providers.py` |
-| Cost control | Token budget, step cap, daily real-model cap, cache | `agent.py`, `service.py` |
-| Observability | A timed span per model and tool call, a run row per question, an audit log | `tracing.py`, `shop.py` |
-| Evals | 21 scenarios that attack the harness, plus a retrieval-quality gate, run in CI | `agent_eval.py`, `evals/` |
-| MCP | The same tools and safety rules offered to any MCP client | `mcp_server.py` |
-| Sandboxing | Every visitor gets a private in-memory database, deleted after 30 minutes | `service.py` |
+| Agents | **LangGraph** | Supervisor graph and specialist agents. Least privilege: the policy agent cannot see orders or move money. `interrupt()` + a Postgres checkpointer make manager approvals durable across restarts. |
+| Models | **LangChain** + **Gemini** | One adapter (`providers.py`) for any tool-calling chat model; Gemini on the API or a fine-tuned model on Vertex AI. |
+| Reliability | own **LLM gateway** | Fast/strong routing, response cache, provider fallback, circuit breaker, offline fallback, per-provider stats. |
+| API | **FastAPI** | Typed request models, OpenAPI docs at `/api/docs`, request ids, security headers. |
+| Data | **Postgres + pgvector** (Neon) | One schema per visitor sandbox; approvals and history persist; hybrid search (word + Gemini embedding vectors). |
+| State | **Redis** (Upstash) | Live sandboxes, sliding-window rate limits, a daily AI-call budget shared by all instances, sign-in lockouts. |
+| Jobs | **Dramatiq** on Redis | Manager decisions and Stripe webhooks run in the background with retries; idempotency keys make retries safe. |
+| Frontend | **Next.js 16**, React 19, TypeScript, Tailwind, TanStack Query | Shop, orders, help search, staff console with business metrics, chat with voice, a "behind the scenes" inspector. |
+| Evals | unittest, scenario evals, **openevals** LLM-as-judge, **LangSmith** | Safety in code, quality by a calibrated judge, experiments compared in LangSmith. |
+| Fine-tuning | **Vertex AI** supervised tuning | Distil a strong teacher into a small student; adopt only if it matches the evals and costs less. |
+| Observability | JSON logs, **OpenTelemetry** to **Grafana Cloud**, LangSmith | Request ids in every log line; every route, model call and tool call is a span. |
+| Infra | **Docker**, **Terraform**, **GitHub Actions** | Neon, Upstash, Render and Vercel as code; CI runs lint, tests (incl. Postgres), evals, build, image smoke test, `terraform validate`. |
 
-## Checks
+## Run it locally
+
+Everything works offline with no accounts: SQLite instead of Postgres, an in-process fake Redis, jobs run inline,
+and a rule-based offline assistant instead of Gemini (same agents, tools and safety checks).
 
 ```bash
-PYTHONPATH=src python -m unittest discover -q      # 63 tests
-PYTHONPATH=src python -m brightwood_support.agent_eval      # 21 scenarios
-PYTHONPATH=src python evals/run_retrieval_eval.py  # retrieval gate (hit@3 0.76, MRR 0.74 on 25 questions)
+python -m venv .venv && . .venv/Scripts/activate       # Windows; use .venv/bin/activate elsewhere
+pip install -r requirements-dev.txt
+PYTHONPATH=src python -m brightwood_support.server      # API on http://localhost:8000, docs at /api/docs
+```
+
+```bash
+cd web && npm install && npm run dev                    # site on http://localhost:3000
+```
+
+To use the real model, copy `.env.example` to `.env` and set `GEMINI_API_KEY` and `GEMINI_MODEL`. To use Postgres and
+Redis locally, set `DATABASE_URL` and `REDIS_URL` (the tests can start an embedded Postgres with pgvector, see below).
+
+## Tests and evals
+
+| Check | Command | Result now |
+|---|---|---|
+| Unit + API tests | `PYTHONPATH=src python -m unittest discover` | 89 pass |
+| Postgres integration (restart survival, pgvector, rules) | `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_postgres` | 4 pass (CI uses a `pgvector/pgvector` container) |
+| Agent safety scenarios, single and multi-agent | `PYTHONPATH=src python -m brightwood_support.agent_eval` | 26/26 and 26/26 |
+| End-to-end conversations, code checks | `python evals/run_conversation_eval.py` | 24/24 with the offline assistant |
+| Retrieval gate (word search) | `python evals/run_retrieval_eval.py` | hit@3 0.76, MRR 0.74 |
+| Live model + LLM judge | `python evals/run_conversation_eval.py --live --judge` | run with your key (also the `live-evals` workflow) |
+| Hybrid retrieval with Gemini embeddings | `python evals/run_retrieval_eval.py --semantic` | run with your key |
+| Judge calibration against human labels | `python evals/run_conversation_eval.py --calibrate` | run with your key |
+
+The split is deliberate: **safety is checked by code** (did money move, did another customer's data leak, did the right
+agent and tool run), and **quality is graded by a judge model** (is the answer grounded in the retrieved articles, does it
+match the reference answer). The judge is only trusted after it agrees with hand-labelled examples.
+
+## Business metrics and success targets
+
+`GET /api/metrics` (and the staff page) reports, across all visitors: containment rate (resolved without a person),
+escalation and approval rates, failure rate, rule blocks, injection attempts, model fallback rate, p50/p95 latency,
+tokens and cost per conversation, and manager approval wait. Each is compared with a target in `runlog.py`:
+
+| Target | Goal |
+|---|---|
+| Resolved without a person | ≥ 60% |
+| Turns that stopped early | ≤ 2% |
+| p95 time to answer | ≤ 8 s |
+| Model cost per conversation | ≤ $0.01 |
+| Median wait for a manager | ≤ 4 h |
+
+## Fine-tuning (distillation)
+
+```bash
+python finetune/build_dataset.py            # teacher = GEMINI_STRONG_MODEL; --dry-run uses the offline assistant
+python finetune/launch_vertex.py --train gs://.../train_vertex.jsonl --val gs://.../val_vertex.jsonl   # --submit to start
+python finetune/compare.py --base <model> --candidate <tuned endpoint> --candidate-vertex --judge
+```
+
+Prompts are synthetic and **held out from the evals**; trajectories are kept only if they finish cleanly, make no invalid
+tool calls, match the prompt's intent and contain nothing private. Data is exported for Vertex AI Gemini and in the OpenAI
+format. The tuned model is adopted only if its eval pass rate is no lower, judge scores do not drop, and it is cheaper or faster.
+
+## Deploy (free tiers)
+
+1. Push to GitHub, and connect the repository to Render and Vercel (one-time, in their dashboards).
+2. Create accounts/API keys: Neon, Upstash, Render, Vercel, and a Gemini API key. Optional: Grafana Cloud, LangSmith.
+3. `cd infra/terraform && cp terraform.tfvars.example terraform.tfvars`, fill it in, then
+   `terraform init && terraform plan && terraform apply`. It creates the database, Redis, the API service and the site,
+   and wires `API_URL` into Vercel.
+4. Open `<api>/api/health`: `database` should say `postgres`, `redis` `true`, `jobs` `redis-queue`.
+
+Without Terraform: create the Neon database and Upstash Redis by hand, deploy the API with `render.yaml` (Blueprint),
+and import the repo in Vercel with root directory `web` and `API_URL` set to the Render URL.
+
+## Security notes
+
+- The customer id comes from the session, never from the model; no tool takes one, and no tool deletes anything.
+- Staff tokens are RS256 JWTs (algorithm pinned, issuer/audience/expiry checked). Demo mode lets visitors try both roles;
+  production sets `DEMO_STAFF_LOGIN=false` and `STAFF_ACCESS_CODE` (5 attempts per 5 minutes per client).
+- Card numbers, secrets and other customers' emails are masked before the model sees them and before anything is stored.
+- Stripe live keys are refused; webhooks are signature-checked with replay protection.
+- Each visitor's sandbox is an isolated Postgres schema, named from a hash of the session id.
+
+## Project layout
+
+```
+src/brightwood_support/   agent.py (LangGraph supervisor + specialists), workflows.py (approval interrupt), service.py,
+                          server.py (FastAPI), shop.py (rules + SQL), db.py (SQLite/Postgres), state.py (Redis), jobs.py,
+                          gateway.py, providers.py, rag/ (pgvector hybrid search), runlog.py (metrics), telemetry.py,
+                          conversation_eval.py, judges.py, finetune.py, mcp_server.py
+web/                      Next.js site
+evals/                    eval cases, judge calibration, runners
+finetune/                 dataset builder, Vertex launcher, base-vs-tuned comparison
+infra/terraform/          Neon, Upstash, Render, Vercel
+tests/                    unit, API, Postgres integration, eval and fine-tuning tests
 ```
 
 ## Honest limits
 
-- Stripe has never been called from the build environment either (it is not reachable from here); `payments.py` is tested against a fake HTTP function and a computed webhook signature.
-- Gemini has never been called from the build environment; `providers.py` is tested only against a fake HTTP function. Expect a small fix on the first real call (model id, field names).
-- The offline assistant is rules, not an LLM. The agent scenarios test the harness, not a model's judgement; running them against a real model is a separate step.
-- Search matches words, not meaning (misses: "broken" vs "damaged", "charged twice" vs "double charge"). Next step: embeddings from a model, then combine with word matching.
-- The router (fast vs strong model) is a heuristic that a real-model eval has to confirm.
-- The staff sign-in is a built-in provider so visitors can try both roles. A real deployment uses Okta, Auth0 or Cognito.
-- Per-visitor data lives in memory on one server process; scaling out would need Postgres and a shared session store.
+- Gemini has not been called from the build environment: the LangChain adapter is tested against a fake chat model.
+  Run the `live-evals` workflow (or the commands above) to get the real numbers.
+- Stripe test mode, Upstash, Grafana Cloud, LangSmith and Vertex tuning are wired and unit-tested but not yet exercised
+  against the real services. Postgres + pgvector and the LangGraph Postgres checkpointer *are* tested against a real Postgres.
+- The offline assistant is rules, not an LLM; offline eval results measure the harness, not model judgement.
+- The semantic-score calibration constant (`SEMANTIC_FLOOR` in `rag/semantic.py`) should be checked with `--semantic`.
+- Render's free instance has 512 MB of memory; LangChain and LangGraph fit, but watch it under load.

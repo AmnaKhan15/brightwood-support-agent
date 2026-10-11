@@ -5,5 +5,9 @@ evals/results/
 .venv/
 .env
 node_modules/
-frontend/dist/
+web/.next/
 finetune/data/
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform.lock.hcl.bak

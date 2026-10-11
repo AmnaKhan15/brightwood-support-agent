@@ -1,0 +1,9 @@
+.git
+.venv
+.env
+**/__pycache__
+web
+infra
+finetune
+tests
+evals/results
