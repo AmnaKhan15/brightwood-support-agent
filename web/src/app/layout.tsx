@@ -24,7 +24,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-dvh font-sans">
         <Providers>
           <Header />
-          <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-8">{children}</main>
+          <main className="mx-auto w-full max-w-[1400px] px-4 pb-28 pt-8 sm:px-6 lg:px-10">{children}</main>
           <Chat />
           <Inspector />
           <Toast />

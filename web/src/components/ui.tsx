@@ -115,12 +115,13 @@ export function GatewayTable({ providers }: { providers: Record<string, { calls:
   return <Table head={["provider", "calls", "failures", "skipped", "avg s"]} rows={Object.entries(providers).map(([n, p]) => [n, p.calls, p.failures, p.skipped_open, p.avg_seconds])} />;
 }
 
+// What happened to the customer's request, in plain words.
 const STATE_LABEL: Record<string, [string, Tone]> = {
-  ok: ["done", "ok"],
-  waiting: ["waiting for a manager", "wait"],
-  blocked: ["blocked by a rule", "no"],
-  refused: ["refused", "no"],
-  stopped: ["stopped", "no"],
+  ok: ["Resolved", "ok"],
+  waiting: ["Waiting for a manager", "wait"],
+  blocked: ["Not allowed by store rules", "no"],
+  refused: ["Declined", "no"],
+  stopped: ["Stopped safely", "no"],
 };
 export function StatePill({ state }: { state: string }) {
   const [label, tone] = STATE_LABEL[state] ?? [state, "neutral" as Tone];

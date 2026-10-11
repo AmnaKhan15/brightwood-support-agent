@@ -118,7 +118,7 @@ export default function Shop() {
         </div>
         {error && <Note tone="bad">{error}</Note>}
         {products.isLoading && <p className="text-muted">Loading the shop…</p>}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {products.data?.map((p) => {
             const look = VISUALS[p.id]?.colors ?? ["#eee", "#ddd"];
             return (

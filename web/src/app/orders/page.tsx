@@ -58,7 +58,7 @@ export default function Orders() {
         </p>
       </div>
       {note && <Note tone="bad">{note}</Note>}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {data.orders?.map((o) => {
           const refunds = data.refunds.filter((r) => r.order_id === o.order_id);
           return (

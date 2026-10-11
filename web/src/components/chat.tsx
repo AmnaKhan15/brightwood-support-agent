@@ -200,8 +200,8 @@ export function Chat() {
               {isLast && inspect && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <StatePill state={inspect.state} />
-                  {inspect.agent && <Pill tone="brand">{inspect.agent} agent</Pill>}
-                  {inspect.provider && <Pill>{inspect.provider}</Pill>}
+                  {inspect.agent && <Pill tone="brand">Answered by: {inspect.agent.charAt(0).toUpperCase() + inspect.agent.slice(1)} agent</Pill>}
+                  {inspect.provider && <Pill>Model: {inspect.provider.startsWith("gemini") ? "Gemini" : inspect.provider.startsWith("offline") ? "Backup assistant" : inspect.provider}</Pill>}
                   <button type="button" className="text-xs font-semibold text-brand underline" onClick={() => setDrawerOpen(true)}>See what happened</button>
                 </div>
               )}
