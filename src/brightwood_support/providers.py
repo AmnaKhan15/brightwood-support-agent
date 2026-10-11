@@ -81,12 +81,23 @@ class LangChainModel:
         return Reply(text=_text(ai.content) or None, tool_calls=calls, tokens=int(usage.get("total_tokens", 0)))
 
 
-def GeminiModel(model: str | None = None, api_key: str | None = None, timeout: float = 20.0) -> LangChainModel:  # noqa: N802
-    """Gemini via langchain-google-genai. Retries are left to the gateway, which falls back instead of waiting."""
+def GeminiModel(model: str | None = None, api_key: str | None = None, timeout: float = 20.0, env=os.environ) -> LangChainModel:  # noqa: N802
+    """Gemini via langchain-google-genai. Retries are left to the gateway, which falls back instead of waiting.
+
+    With GEMINI_USE_VERTEX=true the model is called on Vertex AI instead of the Gemini API (Google Cloud
+    credentials, GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION). That is how a fine-tuned model is served:
+    set GEMINI_MODEL to the tuned model's endpoint.
+    """
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    model = model or os.environ.get("GEMINI_MODEL", "")
-    api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+    model = model or env.get("GEMINI_MODEL", "")
+    if env.get("GEMINI_USE_VERTEX", "").lower() in ("1", "true", "yes"):
+        if not model:
+            raise ValueError("GEMINI_MODEL must be set")
+        chat = ChatGoogleGenerativeAI(model=model, vertexai=True, project=env.get("GOOGLE_CLOUD_PROJECT"),
+                                      location=env.get("GOOGLE_CLOUD_LOCATION", "us-central1"), temperature=0, max_retries=1, timeout=timeout)
+        return LangChainModel(chat, f"vertex:{model}")
+    api_key = api_key or env.get("GEMINI_API_KEY", "")
     if not model or not api_key:
         raise ValueError("GEMINI_MODEL and GEMINI_API_KEY must be set")
     chat = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0, max_retries=1, timeout=timeout)

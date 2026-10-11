@@ -101,7 +101,10 @@ SPECIALISTS: dict[str, Specialist] = {
 GENERALIST = Specialist("generalist", ALL_TOOLS, "")
 
 _BILLING = re.compile(r"refund|money back|reimburs|charged|charge\b|payment|paid|card|invoice|gift card|discount", re.I)
-_ORDERS = re.compile(r"\bO\d{4}\b|cancel|where is|track|deliver|arriv|shipp|my orders?\b|return label|send (it )?back|lost|not moving|stuck", re.I)
+# Only messages about the customer's own orders go to the orders agent. A general question such as
+# "Is shipping free?" is policy, even though it mentions shipping.
+_ORDERS = re.compile(r"\bO\d{4}\b|cancel|where is|where are|track|\bmy (orders?|parcel|package|delivery)\b|return label|send (it )?back"
+                     r"|hasn.t arrived|not arrived|never arrived|lost|not moving|stuck", re.I)
 
 
 class Router(Protocol):

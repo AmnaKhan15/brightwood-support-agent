@@ -84,7 +84,8 @@ class CappedModel:
 
 
 def _live(env) -> bool:
-    return bool(env.get("GEMINI_API_KEY") and env.get("GEMINI_MODEL"))
+    vertex = env.get("GEMINI_USE_VERTEX", "").lower() in ("1", "true", "yes")
+    return bool(env.get("GEMINI_MODEL") and (env.get("GEMINI_API_KEY") or vertex))
 
 
 def build_gateway(budget: AiBudget, env=os.environ) -> Gateway:
@@ -93,16 +94,16 @@ def build_gateway(budget: AiBudget, env=os.environ) -> Gateway:
     offline = lambda: Provider("offline-assistant", PlaybookModel(), timeout=5)  # noqa: E731
     fast, strong = [], []
     if _live(env):
-        fast.append(Provider("gemini-fast", CappedModel(GeminiModel(env["GEMINI_MODEL"], env["GEMINI_API_KEY"]), budget), timeout=15))
+        fast.append(Provider("gemini-fast", CappedModel(GeminiModel(env["GEMINI_MODEL"], env.get("GEMINI_API_KEY"), env=env), budget), timeout=15))
         strong_id = env.get("GEMINI_STRONG_MODEL") or env["GEMINI_MODEL"]
-        strong.append(Provider("gemini-strong", CappedModel(GeminiModel(strong_id, env["GEMINI_API_KEY"], timeout=25), budget), timeout=25))
+        strong.append(Provider("gemini-strong", CappedModel(GeminiModel(strong_id, env.get("GEMINI_API_KEY"), timeout=25, env=env), budget), timeout=25))
     return Gateway({"fast": fast + [offline()], "strong": strong + [offline()]})
 
 
 def build_router(budget: AiBudget, env=os.environ):
     if _live(env):
         from .providers import GeminiModel
-        return LLMRouter(CappedModel(GeminiModel(env["GEMINI_MODEL"], env["GEMINI_API_KEY"], timeout=8), budget))
+        return LLMRouter(CappedModel(GeminiModel(env["GEMINI_MODEL"], env.get("GEMINI_API_KEY"), timeout=8, env=env), budget))
     return KeywordRouter()
 
 
