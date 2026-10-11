@@ -31,8 +31,8 @@ export default function Shop() {
   const [error, setError] = useState<string | null>(null);
   const stripe = health?.payments === "stripe-test";
   const mode = !health ? "Checking assistant status" : health.mode.includes("gemini")
-    ? "Support assistant online: Gemini, with an offline backup"
-    : "Support assistant online: built-in offline assistant";
+    ? "AI support online: Gemini answers, with a rule-based backup if it's unavailable"
+    : "Backup assistant answering: no AI key is set, so simple built-in rules reply instead of Gemini";
 
   // Coming back from Stripe's page after pressing "back" there.
   useEffect(() => {

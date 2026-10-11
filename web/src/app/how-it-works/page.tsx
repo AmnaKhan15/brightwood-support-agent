@@ -76,7 +76,7 @@ export default function HowItWorks() {
               <Pill>version {h.version}</Pill>
             </div>
             <ul className="list-disc pl-5 text-sm text-muted">
-              <li>{h.mode.includes("gemini") ? "Gemini answers when it can. If it is slow, down, or the daily cap is used, the offline assistant answers and the chat says so." : "No model key is set, so the built-in offline assistant (rules, not an LLM) answers, through the same agents, tools and safety checks."}</li>
+              <li>{h.mode.includes("gemini") ? "Gemini answers when it can. If it is slow, down, or the daily cap is used, the offline assistant answers and the chat says so." : "No AI key is set, so a backup assistant made of simple rules (not an AI model) answers. It goes through the same agents, tools and safety checks. Add a Gemini key to switch on the real AI."}</li>
               <li>Customers, orders and products are invented. Each visitor&apos;s data is deleted after 30 minutes idle.</li>
               <li>Staff sign-in here is {h.staff_login === "demo" ? "in demo mode so visitors can try both roles; a real deployment uses an access code or an identity provider (Okta, Auth0, Cognito)" : h.staff_login === "access-code" ? "protected by an access code" : "turned off"}.</li>
             </ul>
