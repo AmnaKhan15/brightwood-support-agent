@@ -24,8 +24,8 @@ export default function Shop() {
           <Eyebrow>Brightwood Goods</Eyebrow>
           <h1 className="text-4xl font-bold leading-tight md:text-5xl">Calm things for the rooms you live in.</h1>
           <p className="max-w-xl text-lg text-muted">
-            A small home goods store with an unusual support team: a supervisor AI that hands each question to a policy, orders or billing
-            specialist, reads the store&apos;s real help articles, and sends large refunds to a person.
+            A pretend home goods store with a real AI support team. Nothing here can be bought: every demo customer already has orders,
+            and the support agents help with them, from tracking and cancelling to returns and refunds.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button variant="solid" onClick={() => openChat()}>Talk to support</Button>
@@ -45,13 +45,32 @@ export default function Shop() {
         </div>
       </section>
 
+      <section aria-labelledby="how-h" className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
+        <div>
+          <Eyebrow>How this demo works</Eyebrow>
+          <h2 id="how-h" className="mt-1 text-2xl font-bold">Three things to try</h2>
+        </div>
+        <ol className="grid gap-4 md:grid-cols-3">
+          {[
+            ["Pick who you are", "Use the “You are” menu at the top. Sam, Priya and Alex each have different orders: delivered, shipped, still processing."],
+            ["Ask support about an order", "Track it, cancel it, ask for a return label or a refund, or ask a policy question. Try Priya with “Refund order O2001”."],
+            ["Switch to Staff", "Press Staff at the top to approve or reject the refunds the AI wasn’t allowed to give on its own (anything over $50)."],
+          ].map(([title, text], n) => (
+            <li key={title} className="flex gap-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft font-mono text-sm font-bold text-brand">{n + 1}</span>
+              <div className="min-w-0"><h3 className="font-semibold">{title}</h3><p className="text-sm text-muted">{text}</p></div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
       <section className="flex flex-col gap-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <Eyebrow>The shop</Eyebrow>
-            <h2 className="mt-1 text-2xl font-bold">New this month</h2>
+            <Eyebrow>The catalogue</Eyebrow>
+            <h2 className="mt-1 text-2xl font-bold">Items in the demo orders</h2>
           </div>
-          <p className="max-w-md text-sm text-muted">Brightwood is a fictional store, so nothing here can be bought. Ask support about any item.</p>
+          <p className="max-w-md text-sm text-muted">These are the products the demo customers have ordered. They’re here for context; ask support about the return rules for any of them.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PRODUCTS.map((p) => (
@@ -66,7 +85,7 @@ export default function Shop() {
                 <div className="mt-2 flex items-center justify-between">
                   <span className="font-display text-lg font-bold">{usd(p.price)}</span>
                   <Button size="sm" onClick={() => openChat(p.clearance ? `Can I return the ${p.name.toLowerCase()}?` : `What is your return policy for the ${p.name.toLowerCase()}?`, true)}>
-                    Ask support
+                    Ask about returns
                   </Button>
                 </div>
               </div>
@@ -77,7 +96,7 @@ export default function Shop() {
 
       <footer className="border-t border-line pt-6 text-sm text-muted">
         Brightwood Goods is a made-up store: customers, orders and products are invented. The support agents, their rules and their records
-        are real software, built to show how an AI support team can be made safe to run. <Link href="/staff" className="font-semibold text-brand underline">Staff sign-in</Link>
+        are real software, built to show how an AI support team can be made safe to run.
       </footer>
     </div>
   );

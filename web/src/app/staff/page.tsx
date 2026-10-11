@@ -137,7 +137,7 @@ export default function Staff() {
                   )}
                 </div>
               )) : (
-                <p className="text-sm text-muted">Nothing is waiting. In the chat, sign in as Priya and ask for a refund on order O2001. It is over the assistant&apos;s $50 limit, so it lands here.</p>
+                <p className="text-sm text-muted">Nothing is waiting. Press Customer at the top, choose Priya Nair, and ask support to &ldquo;Refund order O2001&rdquo;. It is over the assistant&apos;s $50 limit, so it lands here.</p>
               )}
             </div>
           </Card>

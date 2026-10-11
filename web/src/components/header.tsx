@@ -1,23 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useApp, useAppState } from "./providers";
 import { Button, Pill, cx } from "./ui";
 
-const NAV = [
+// Pages a customer sees. The staff console has its own mode, chosen with the Customer / Staff switch.
+const CUSTOMER_NAV = [
   ["/", "Shop"],
   ["/orders", "Your orders"],
   ["/help", "Help centre"],
   ["/how-it-works", "How it works"],
-  ["/staff", "Staff"],
 ] as const;
 
 export function Header() {
   const path = usePathname();
-  const { customer, setCustomer, resetSandbox, toggleTheme, ready } = useApp();
+  const router = useRouter();
+  const { customer, setCustomer, resetSandbox, toggleTheme, ready, staff } = useApp();
   const { data } = useAppState();
   const staffMode = path.startsWith("/staff");
+  const pending = data?.pending ?? 0;
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
@@ -25,38 +27,64 @@ export function Header() {
         <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold">
           <span className="inline-block size-6 rounded-lg bg-brand" aria-hidden />
           Brightwood
-          {staffMode && <Pill tone="brand">staff</Pill>}
         </Link>
-        <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
-          {NAV.map(([href, label]) => {
-            const active = href === "/" ? path === "/" : path.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={cx("whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold", active ? "bg-brand-soft text-brand" : "text-muted hover:text-ink")}
-              >
-                {label}
-                {href === "/staff" && !!data?.pending && <Pill tone="wait" className="ml-1.5">{data.pending}</Pill>}
-              </Link>
-            );
-          })}
-        </nav>
+
+        <div role="group" aria-label="View the app as" className="flex rounded-xl border border-line bg-surface p-0.5">
+          <button
+            type="button"
+            aria-pressed={!staffMode}
+            onClick={() => staffMode && router.push("/")}
+            className={cx("rounded-lg px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+          >
+            Customer
+          </button>
+          <button
+            type="button"
+            aria-pressed={staffMode}
+            onClick={() => !staffMode && router.push("/staff")}
+            className={cx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+          >
+            Staff
+            {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
+          </button>
+        </div>
+
+        {!staffMode && (
+          <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
+            {CUSTOMER_NAV.map(([href, label]) => {
+              const active = href === "/" ? path === "/" : path.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={cx("whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold", active ? "bg-brand-soft text-brand" : "text-muted hover:text-ink")}
+                >
+                  {label}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-muted">
-            <span className="hidden md:inline">Signed in as</span>
-            <select
-              aria-label="Signed-in customer"
-              value={customer}
-              onChange={(e) => setCustomer(e.target.value)}
-              className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-semibold text-ink"
-            >
-              {(data?.customers ?? [{ id: "C1", name: "Sam Rivera" }]).map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
+          {staffMode ? (
+            staff ? <Pill tone="ok">signed in as {staff.role.replace("_", " ")}</Pill> : <Pill>not signed in</Pill>
+          ) : (
+            <label className="flex items-center gap-2 text-sm text-muted">
+              <span className="hidden lg:inline">You are</span>
+              <select
+                aria-label="Which demo customer you are"
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-semibold text-ink"
+              >
+                {(data?.customers ?? [{ id: "C1", name: "Sam Rivera" }]).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button size="sm" variant="ghost" onClick={() => resetSandbox()} disabled={!ready} title="Start over with fresh orders">Reset</Button>
           <Button size="sm" variant="ghost" onClick={toggleTheme} aria-label="Switch light and dark theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
