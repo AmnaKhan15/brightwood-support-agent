@@ -69,7 +69,9 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
         started = time.perf_counter()
         try:
             limit = MAX_WEBHOOK_BODY if request.url.path == "/api/stripe/webhook" else MAX_BODY
-            if int(request.headers.get("content-length") or 0) > limit:
+            if "chunked" in request.headers.get("transfer-encoding", "").lower():
+                response = _error(411, "length_required", "send a Content-Length; chunked request bodies are not accepted")
+            elif int(request.headers.get("content-length") or 0) > limit:
                 response = _error(400, "bad_request", "request too large")
             else:
                 response = await call_next(request)
@@ -160,7 +162,8 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
 
     @app.post("/api/staff/login")
     def login(body: LoginIn, request: Request, s: Service = Svc):
-        client = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+        # request.client is the real peer, or the address a *trusted* proxy reported (FORWARDED_ALLOW_IPS).
+        client = request.client.host if request.client else "unknown"
         return {"token": s.staff_login(body.role, body.name, body.code, client)}
 
     @app.post("/api/approvals/{approval_id}")
@@ -200,7 +203,10 @@ def main() -> None:
         jobs.start_embedded_worker()
     port = int(os.environ.get("PORT", "8000"))
     log.info("starting", extra={"ctx": {"port": port, **{k: v for k, v in service.health().items() if k != "gateway"}}})
-    uvicorn.run(app, host="0.0.0.0", port=port, log_config=None, proxy_headers=True, forwarded_allow_ips="*")
+    # Only trust X-Forwarded-For from the platform's proxy. On Render the app is reachable only through it,
+    # so render.yaml sets FORWARDED_ALLOW_IPS="*"; locally nothing is trusted but this machine.
+    uvicorn.run(app, host="0.0.0.0", port=port, log_config=None, proxy_headers=True,
+                forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1"))
 
 
 if __name__ == "__main__":

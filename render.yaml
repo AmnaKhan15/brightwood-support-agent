@@ -30,6 +30,8 @@ services:
         sync: false
       - key: EMBEDDED_WORKER     # the free plan has no worker service, so the API process runs the job worker
         value: "true"
+      - key: FORWARDED_ALLOW_IPS # the service is reachable only through Render's proxy, so trust its X-Forwarded-For
+        value: "*"
       - key: MODEL_PRICE_PER_1K_TOKENS
         sync: false
       - key: OTEL_EXPORTER_OTLP_ENDPOINT   # optional: Grafana Cloud OTLP endpoint

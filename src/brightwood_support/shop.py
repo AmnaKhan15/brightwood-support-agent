@@ -198,7 +198,7 @@ class Shop:
         if row["status"] != "processing":
             raise PolicyError(f"order {order_id} is {row['status']}, so it cannot be cancelled. It can be returned instead")
         with self._lock:
-            money = self._money_back(order_id, row["total_cents"], "order cancelled before shipping", "assistant")
+            money = self._money_back(order_id, row["total_cents"], "order cancelled before shipping", "cancellation")
             self.db.execute("UPDATE orders SET status='cancelled' WHERE id=?", (order_id,))
         return {"order_id": order_id, "status": "cancelled", "refund": dollars(row["total_cents"]), "provider_refund_id": money["provider_refund_id"],
                 "note": "refunded in full to the original payment method within 3 business days"}
@@ -214,7 +214,8 @@ class Shop:
         return {"order_id": order_id, "label": code, "valid_until": expires, "note": "free prepaid label, drop the parcel at any carrier location"}
 
     def issue_refund(self, customer_id: str, order_id: str, amount: float, reason: str, via: str = "assistant") -> dict:
-        """Record the refund. `via` is "assistant" for a refund the assistant made alone, "manager" after an approval."""
+        """Record the refund. `via` is "assistant" for a refund the assistant made alone, "manager" after an approval
+        ("cancellation" is used for the automatic refund of a cancelled order)."""
         cents = self.check_refund(customer_id, order_id, amount, reason)
         with self._lock:
             money = self._money_back(order_id, cents, reason[:200], via)

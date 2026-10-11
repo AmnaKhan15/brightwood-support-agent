@@ -38,12 +38,18 @@ def _svc():
     return _service
 
 
-@dramatiq.actor(queue_name="approvals", max_retries=3, min_backoff=2_000, max_backoff=30_000)
+def _transient(retries: int, error: Exception) -> bool:
+    """Retry only what can succeed later: the payment provider or a connection being down."""
+    from .payments import PaymentError
+    return retries < 3 and isinstance(error, (PaymentError, ConnectionError, TimeoutError))
+
+
+@dramatiq.actor(queue_name="approvals", retry_when=_transient, min_backoff=2_000, max_backoff=30_000)
 def decide_approval(sid: str, approval_id: int, approve: bool, who: str, role: str) -> str:
     return _svc().finish_decision(sid, approval_id, approve, who, role)
 
 
-@dramatiq.actor(queue_name="webhooks", max_retries=5, min_backoff=1_000, max_backoff=60_000)
+@dramatiq.actor(queue_name="webhooks", retry_when=_transient, min_backoff=1_000, max_backoff=60_000)
 def apply_refund_event(provider_refund_id: str, status: str) -> int:
     return _svc().apply_refund_status(provider_refund_id, status)
 
@@ -65,10 +71,14 @@ def configure(service, redis_url: str = "") -> None:
         broker.declare_actor(actor)
 
 
-def enqueue(actor, *args):
-    """Run now (no Redis) and return the result, or queue it and return None."""
+def enqueue(actor, *args, now=None):
+    """Queue the job and return None, or (no Redis) run it at once and return the result.
+
+    `now` is the caller's own function to run inline, so the work happens on the caller's Service even
+    when a process holds several (tests, evals). Queued jobs run on the Service bound by configure().
+    """
     if _inline:
-        return actor.fn(*args)
+        return (now or actor.fn)(*args)
     actor.send(*args)
     return None
 

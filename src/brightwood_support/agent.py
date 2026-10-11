@@ -279,17 +279,23 @@ def _build_graph(checkpointer):
     return graph.compile(checkpointer=checkpointer)
 
 
-_graphs: dict[int, tuple[Any, Any]] = {}
+_plain_graph = None
 _graphs_lock = threading.Lock()
 
 
 def _graph_for(checkpointer):
-    """One compiled graph per checkpointer (the service has one), built on first use."""
+    """One compiled graph per checkpointer (the service has one), built on first use and stored on the
+    checkpointer itself, so it is freed together with it."""
+    global _plain_graph
     with _graphs_lock:
-        key = id(checkpointer)
-        if key not in _graphs or _graphs[key][0] is not checkpointer:
-            _graphs[key] = (checkpointer, _build_graph(checkpointer))
-        return _graphs[key][1]
+        if checkpointer is None:
+            _plain_graph = _plain_graph or _build_graph(None)
+            return _plain_graph
+        graph = getattr(checkpointer, "_brightwood_agent_graph", None)
+        if graph is None:
+            graph = _build_graph(checkpointer)
+            checkpointer._brightwood_agent_graph = graph
+        return graph
 
 
 def run_agent(

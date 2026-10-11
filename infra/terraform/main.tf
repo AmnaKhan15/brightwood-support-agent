@@ -41,8 +41,10 @@ locals {
       DAILY_AI_CALLS   = { value = tostring(var.daily_ai_calls) }
       DEMO_STAFF_LOGIN = { value = tostring(var.demo_staff_login) }
       EMBEDDED_WORKER  = { value = "true" }
-      APP_ENV          = { value = "production" }
-      LOG_LEVEL        = { value = "INFO" }
+      # Reachable only through Render's proxy, so its X-Forwarded-For is the real client address.
+      FORWARDED_ALLOW_IPS = { value = "*" }
+      APP_ENV             = { value = "production" }
+      LOG_LEVEL           = { value = "INFO" }
     },
     var.gemini_strong_model == "" ? {} : { GEMINI_STRONG_MODEL = { value = var.gemini_strong_model } },
     var.model_price_per_1k_tokens == "" ? {} : { MODEL_PRICE_PER_1K_TOKENS = { value = var.model_price_per_1k_tokens } },

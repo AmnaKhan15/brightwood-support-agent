@@ -137,13 +137,14 @@ class PgVectorStore(_Chunks):
                 semantic_vecs = self.semantic.embed_documents([_text(c) for c in chunks])
             except Exception as error:  # noqa: BLE001
                 log.warning("semantic embeddings unavailable, indexing words only: %r", error)
-        self.db.execute("DELETE FROM help_chunks")
-        for i, c in enumerate(chunks):
-            self.db.execute("INSERT INTO help_chunks VALUES(?,?,?,?,?::vector,?::vector)",
-                            (c.id, c.doc, c.heading, c.text, _vec(self.embedder.embed(_text(c))),
-                             _vec(semantic_vecs[i]) if semantic_vecs else None))
-        self.db.execute("INSERT INTO help_meta VALUES('fingerprint', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                        (fp if semantic_vecs or not self.semantic else "partial",))
+        with self.db.transaction() as tx:  # other instances keep seeing the old index until this commits
+            tx.execute("DELETE FROM help_chunks")
+            for i, c in enumerate(chunks):
+                tx.execute("INSERT INTO help_chunks VALUES(?,?,?,?,?::vector,?::vector)",
+                           (c.id, c.doc, c.heading, c.text, _vec(self.embedder.embed(_text(c))),
+                            _vec(semantic_vecs[i]) if semantic_vecs else None))
+            tx.execute("INSERT INTO help_meta VALUES('fingerprint', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (fp if semantic_vecs or not self.semantic else "partial",))
         self._has_semantic = semantic_vecs is not None
         log.info("help index rebuilt (%d chunks, semantic=%s)", len(chunks), self._has_semantic)
 

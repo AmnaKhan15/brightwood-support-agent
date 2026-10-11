@@ -63,16 +63,16 @@ class RateLimiter:
     def allow(self, key: str, limit: int, window: float = 60.0) -> bool:
         now = self._clock()
         k = PREFIX + "rl:" + key
-        pipe = self.r.pipeline()
+        member = f"{now}:{secrets.token_hex(4)}"
+        pipe = self.r.pipeline(transaction=True)  # one MULTI: concurrent callers all see each other's entries
         pipe.zremrangebyscore(k, "-inf", now - window)
+        pipe.zadd(k, {member: now})
         pipe.zcard(k)
-        _, used = pipe.execute()
-        if used >= limit:
-            return False
-        pipe = self.r.pipeline()
-        pipe.zadd(k, {f"{now}:{secrets.token_hex(4)}": now})
         pipe.expire(k, int(window) + 5)
-        pipe.execute()
+        used = pipe.execute()[2]
+        if used > limit:
+            self.r.zrem(k, member)  # over the limit: this attempt does not count
+            return False
         return True
 
 

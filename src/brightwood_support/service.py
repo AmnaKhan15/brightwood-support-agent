@@ -366,7 +366,7 @@ class Service:
         if not self.demo_staff:
             if not self.staff_code:
                 raise Forbidden("staff sign-in is turned off on this server")
-            if not self.limiter.allow(f"login:{client}", 5, 300):
+            if not (self.limiter.allow(f"login:{client}", 5, 300) and self.limiter.allow("login:all", 30, 300)):
                 raise RateLimited("too many sign-in attempts; wait five minutes")
             if not hmac.compare_digest((code or "").encode(), self.staff_code.encode()):
                 raise AuthError("wrong access code")
@@ -390,7 +390,7 @@ class Service:
         if not self.redis.set(deciding_key(sid, approval_id), who, nx=True, ex=300):
             raise ValueError("this approval is already being processed")
         try:
-            status = jobs.enqueue(jobs.decide_approval, sid, approval_id, approve, who, role)
+            status = jobs.enqueue(jobs.decide_approval, sid, approval_id, approve, who, role, now=self.finish_decision)
         except PaymentError as error:
             raise ValueError(f"The payment provider did not complete the refund, so nothing was refunded and the request is still waiting. {error}") from None
         except Exception:
@@ -404,13 +404,24 @@ class Service:
         raise Forbidden(str(error)) from None
 
     def finish_decision(self, sid: str, approval_id: int, approve: bool, who: str, role: str) -> str:
-        """The job body: resume the paused workflow with this decision."""
+        """The job body: resume the paused workflow with this decision.
+
+        The in-progress marker is released when the decision is done or has failed for good. While a queued
+        job waits to retry a payment failure, the marker stays (it expires on its own), so nobody can decide twice.
+        """
         try:
             s = self.session(sid)
             cid, _ = s.find_queue(approval_id)
-            return workflows.resume(self.approvals, sid, cid, approval_id, {"approve": approve, "by": who, "role": role})
-        finally:  # inline or queued, the job that carried the decision out releases the marker
+            outcome = workflows.resume(self.approvals, sid, cid, approval_id, {"approve": approve, "by": who, "role": role})
+        except (PaymentError, ConnectionError, TimeoutError):
+            if jobs.inline():
+                self.redis.delete(deciding_key(sid, approval_id))
+            raise
+        except Exception:
             self.redis.delete(deciding_key(sid, approval_id))
+            raise
+        self.redis.delete(deciding_key(sid, approval_id))
+        return outcome
 
     def _carry_out(self, state: workflows.ApprovalState, decision: dict) -> str:
         """The workflow's last step. The queue checks the role again before any money moves."""
@@ -494,15 +505,15 @@ class Service:
         obj = (event.get("data") or {}).get("object") or {}
         if obj.get("object") != "refund" or "id" not in obj:
             return {"queued": False, "updated": 0}
-        updated = jobs.enqueue(jobs.apply_refund_event, obj["id"], obj.get("status", "unknown"))
+        updated = jobs.enqueue(jobs.apply_refund_event, obj["id"], obj.get("status", "unknown"), now=self.apply_refund_status)
         return {"queued": True, "updated": updated}
 
     def apply_refund_status(self, provider_refund_id: str, status: str) -> int:
         updated = 0
         for sid in self.registry.all():
-            try:
-                s = self.session(sid)
-            except NoSuchSession:
+            with self._lock:  # a look, not a visit: the sandbox's idle timer is left alone
+                s = self.sessions.get(sid) or self._open(sid, create=False)
+            if s is None:
                 continue
             with s.lock:
                 if s.shop.update_refund_status(provider_refund_id, status):
