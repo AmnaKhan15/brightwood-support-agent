@@ -156,11 +156,11 @@ export function Chat() {
   return (
     <section
       aria-label="Support chat"
-      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[640px] sm:w-[400px]"
+      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-md border border-line bg-surface shadow-card sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[640px] sm:w-[400px]"
     >
       <div className="flex flex-col gap-2 border-b border-line px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand" aria-hidden>
+          <div className="grid size-9 shrink-0 place-items-center rounded-md bg-brand-soft text-brand" aria-hidden>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="7" width="16" height="12" rx="4" /><path d="M12 7V4M9 13h.01M15 13h.01" /></svg>
           </div>
           <div className="min-w-0 flex-1">
@@ -180,7 +180,7 @@ export function Chat() {
 
       <div ref={log} className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4" aria-live="polite">
         {!bubbles.length && (
-          <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm">
+          <div className="max-w-[85%] rounded-md rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm">
             Hi {me?.name.split(" ")[0] ?? ""}, I&apos;m Brightwood&apos;s support assistant. I can look up your orders, cancel or return them, answer from our help articles, and pass anything bigger to a person.
           </div>
         )}
@@ -190,7 +190,7 @@ export function Chat() {
             <div
               key={i}
               className={cx(
-                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm",
+                "max-w-[85%] whitespace-pre-wrap rounded-md px-3.5 py-2.5 text-sm",
                 b.role === "customer" && "self-end rounded-tr-sm bg-brand text-brand-ink",
                 b.role === "assistant" && "rounded-tl-sm bg-surface-2",
                 b.role === "system" && "self-center bg-warn-soft text-center text-xs",
@@ -208,7 +208,7 @@ export function Chat() {
             </div>
           );
         })}
-        {busy && <div className="typing self-start rounded-2xl bg-surface-2 px-3 py-2.5" aria-label="Assistant is typing"><i /><i /><i /></div>}
+        {busy && <div className="typing self-start rounded-md bg-surface-2 px-3 py-2.5" aria-label="Assistant is typing"><i /><i /><i /></div>}
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none]">
@@ -245,7 +245,7 @@ export function Chat() {
           autoComplete="off"
           placeholder="Ask about an order, a return or a refund"
           aria-label="Message"
-          className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm"
+          className="min-w-0 flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm"
         />
         <Button type="submit" variant="solid" size="sm" disabled={busy || !input.trim()}>Send</Button>
       </form>

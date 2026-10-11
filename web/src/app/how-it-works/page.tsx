@@ -55,7 +55,7 @@ export default function HowItWorks() {
         <h2 className="text-2xl font-bold">Concepts in plain words</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CONCEPTS.map(([title, text, code]) => (
-            <div key={title} className="flex flex-col gap-1.5 rounded-2xl border border-line p-4">
+            <div key={title} className="flex flex-col gap-1.5 rounded-md border border-line p-4">
               <h3 className="font-semibold">{title}</h3>
               <p className="text-sm text-muted">{text}</p>
               <code className="font-mono text-xs text-muted">{code}</code>

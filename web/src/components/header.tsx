@@ -24,9 +24,8 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-10">
-        <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold">
-          <span className="inline-block size-6 rounded-lg bg-brand" aria-hidden />
-          Brightwood
+        <Link href="/" className="font-display text-xl tracking-[0.28em] text-ink" aria-label="Brightwood, home">
+          BRIGHTWOOD
         </Link>
 
         {!staffMode && (
@@ -38,7 +37,7 @@ export function Header() {
                   key={href}
                   href={href}
                   aria-current={active ? "page" : undefined}
-                  className={cx("whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold", active ? "bg-brand-soft text-brand" : "text-muted hover:text-ink")}
+                  className={cx("whitespace-nowrap px-3 py-1.5 text-sm underline-offset-[10px] decoration-1", active ? "text-ink underline" : "text-muted hover:text-ink")}
                 >
                   {label}
                 </Link>
@@ -57,7 +56,7 @@ export function Header() {
                 aria-label="Which demo customer you are"
                 value={customer}
                 onChange={(e) => setCustomer(e.target.value)}
-                className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-semibold text-ink"
+                className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm font-semibold text-ink"
               >
                 {(data?.customers ?? [{ id: "C1", name: "Sam Rivera" }]).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
@@ -65,12 +64,12 @@ export function Header() {
               </select>
             </label>
           )}
-          <div role="group" aria-label="View the app as" className="flex rounded-xl border border-line bg-surface p-0.5">
+          <div role="group" aria-label="View the app as" className="flex rounded-md border border-line bg-surface p-0.5">
             <button
               type="button"
               aria-pressed={!staffMode}
               onClick={() => staffMode && router.push("/")}
-              className={cx("rounded-lg px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("rounded-md px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Customer
             </button>
@@ -78,7 +77,7 @@ export function Header() {
               type="button"
               aria-pressed={staffMode}
               onClick={() => !staffMode && router.push("/staff")}
-              className={cx("flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Staff
               {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}

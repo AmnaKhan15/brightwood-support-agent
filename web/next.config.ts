@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  images: {
+    // Product photos come from Unsplash's image CDN only.
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/photo-**" }],
+  },
   turbopack: {
     root: path.resolve(__dirname),
     rules: {

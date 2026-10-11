@@ -17,7 +17,7 @@ type Tab = (typeof TABS)[number][0];
 const TABLES = ["messages", "runs", "approvals", "orders", "tickets", "refunds", "audit"];
 
 function Code({ children }: { children: string }) {
-  return <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-3 font-mono text-xs [overflow-wrap:anywhere]">{children}</pre>;
+  return <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-surface-2 p-3 font-mono text-xs [overflow-wrap:anywhere]">{children}</pre>;
 }
 
 const stepItem = (s: Step) => ({ kind: s.kind, title: s.title, body: <><p className="text-sm text-muted">{s.detail}</p>{s.data && <Code>{s.data}</Code>}</> });
@@ -73,7 +73,7 @@ export function Inspector() {
               role="tab"
               aria-selected={tab === k}
               onClick={() => setTab(k)}
-              className={cx("whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold", tab === k ? "bg-brand-soft text-brand" : "text-muted hover:text-ink")}
+              className={cx("whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold", tab === k ? "bg-brand-soft text-brand" : "text-muted hover:text-ink")}
             >
               {label}
             </button>
@@ -137,7 +137,7 @@ export function Inspector() {
             <div className="flex flex-col gap-3">
               <Note>Everything the AI was given for your last question: its specialist&apos;s rules first, then the conversation, then the search results and order data it asked for.</Note>
               {i.prompt.map((m, n) => (
-                <div key={n} className="rounded-xl border border-line bg-surface p-3">
+                <div key={n} className="rounded-md border border-line bg-surface p-3">
                   <div className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted">{m.role === "tool" ? "tool result" : m.role === "user" ? "customer" : m.role}</div>
                   <Code>{m.text}</Code>
                 </div>

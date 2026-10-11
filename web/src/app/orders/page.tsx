@@ -62,7 +62,7 @@ export default function Orders() {
         {data.orders?.map((o) => {
           const refunds = data.refunds.filter((r) => r.order_id === o.order_id);
           return (
-            <article key={o.order_id} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-card">
+            <article key={o.order_id} className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5 shadow-card">
               <h2 className="flex items-center justify-between gap-2 text-lg font-bold">
                 <span className="font-mono">{o.order_id}</span>
                 <Pill tone={STATUS_TONE[o.status as keyof typeof STATUS_TONE] ?? "neutral"}>{o.status}</Pill>

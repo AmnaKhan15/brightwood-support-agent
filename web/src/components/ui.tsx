@@ -15,23 +15,23 @@ const TONES: Record<Tone, string> = {
 
 export function Pill({ tone = "neutral", children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   return (
-    <span className={cx("inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold", TONES[tone], className)}>
+    <span className={cx("inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 font-sans text-xs font-semibold tracking-normal", TONES[tone], className)}>
       {children}
     </span>
   );
 }
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("rounded-2xl border border-line bg-surface p-5 shadow-card", className)}>{children}</div>;
+  return <div className={cx("rounded-md border border-line bg-surface p-5 shadow-card", className)}>{children}</div>;
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <div className="text-xs font-bold uppercase tracking-[0.14em] text-brand">{children}</div>;
+  return <div className="text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-muted">{children}</div>;
 }
 
 export function Note({ tone = "info", children }: { tone?: "info" | "ok" | "bad"; children: ReactNode }) {
   const style = { info: "border-brand/30 bg-brand-soft text-ink", ok: "border-ok/30 bg-ok-soft text-ink", bad: "border-bad/30 bg-bad-soft text-ink" }[tone];
-  return <div className={cx("rounded-xl border px-4 py-3 text-sm", style)}>{children}</div>;
+  return <div className={cx("rounded-md border px-4 py-3 text-sm", style)}>{children}</div>;
 }
 
 export function Button({
@@ -51,7 +51,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={cx("inline-flex items-center justify-center gap-2 rounded-xl border font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", v, s, className)}
+      className={cx("inline-flex items-center justify-center gap-2 rounded-md border font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", v, s, className)}
       {...rest}
     >
       {children}
@@ -62,7 +62,7 @@ export function Button({
 export function Table({ head, rows, empty = "Nothing yet." }: { head: string[]; rows: (string | number | null | undefined | ReactNode)[][]; empty?: string }) {
   if (!rows.length) return <p className="text-sm text-muted">{empty}</p>;
   return (
-    <div className="max-w-full overflow-x-auto rounded-xl border border-line">
+    <div className="max-w-full overflow-x-auto rounded-md border border-line">
       <table className="w-full min-w-max border-collapse text-left text-sm">
         <thead className="bg-surface-2 text-xs uppercase tracking-wide text-muted">
           <tr>{head.map((h) => <th key={h} className="px-3 py-2 font-semibold">{h}</th>)}</tr>
@@ -81,7 +81,7 @@ export function Table({ head, rows, empty = "Nothing yet." }: { head: string[]; 
 
 export function Stat({ value, label }: { value: ReactNode; label: string }) {
   return (
-    <div className="rounded-xl bg-surface-2 px-4 py-3">
+    <div className="rounded-md bg-surface-2 px-4 py-3">
       <div className="font-display text-xl font-bold">{value}</div>
       <div className="text-xs text-muted">{label}</div>
     </div>
@@ -99,7 +99,7 @@ export function ScoreBar({ score }: { score: number }) {
 /** One retrieved help passage with its match score (help search and the inspector). */
 export function Passage({ id, score, text, rank }: { id: string; score: number; text: string; rank?: number }) {
   return (
-    <div className="rounded-xl border border-line p-3">
+    <div className="rounded-md border border-line p-3">
       <div className="mb-1 flex justify-between font-mono text-xs">
         <span className="text-brand">{rank ? `${rank}. ` : ""}{id}</span>
         <span>{score.toFixed(2)}</span>

@@ -1,63 +1,65 @@
 @import "tailwindcss";
 
-/* Design tokens. Light by default, dark from the system, and a manual override via <html data-theme>. */
+/* Brightwood: a calm home-goods brand. Stone and ink neutrals, one deep forest green for actions,
+   an editorial serif for headings, small corners, almost no shadow.
+   Light by default, dark from the system, and a manual override via <html data-theme>. */
 :root {
-  --bg: #f7f5f0;
+  --bg: #f7f6f3;
   --surface: #ffffff;
-  --surface-2: #f1eee7;
-  --ink: #1d2320;
-  --muted: #5f6762;
-  --line: #e2ddd3;
-  --brand: #2f6f5e;
+  --surface-2: #f0eee9;
+  --ink: #1d1c1a;
+  --muted: #6b6862;
+  --line: #e3e0d9;
+  --brand: #26372f;
   --brand-ink: #ffffff;
-  --brand-soft: #e3efe9;
-  --ok: #2f7d4f;
-  --ok-soft: #e2f2e8;
-  --warn: #9a6400;
-  --warn-soft: #fbefd6;
-  --bad: #b23a3a;
-  --bad-soft: #f8e1e1;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  --brand-soft: #e6ebe7;
+  --ok: #2f6b45;
+  --ok-soft: #e4efe7;
+  --warn: #8a5a12;
+  --warn-soft: #f6ecd9;
+  --bad: #9c3a32;
+  --bad-soft: #f6e3e0;
+  --shadow: 0 1px 2px rgb(29 28 26 / 0.04);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #111513;
-    --surface: #181d1a;
-    --surface-2: #1f2522;
-    --ink: #e8ece9;
-    --muted: #9aa49e;
-    --line: #2c3430;
-    --brand: #6cc3a6;
-    --brand-ink: #0d1411;
-    --brand-soft: #1f3a31;
-    --ok: #6fcf97;
-    --ok-soft: #1c3527;
-    --warn: #f2c05c;
-    --warn-soft: #3a2f17;
-    --bad: #f08a8a;
-    --bad-soft: #3d2121;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+    --bg: #131312;
+    --surface: #1b1a19;
+    --surface-2: #242321;
+    --ink: #edeae4;
+    --muted: #a29e97;
+    --line: #2f2d2a;
+    --brand: #d9e3dc;
+    --brand-ink: #131312;
+    --brand-soft: #25302a;
+    --ok: #7fc297;
+    --ok-soft: #1d2d22;
+    --warn: #e2b467;
+    --warn-soft: #362a17;
+    --bad: #e79a92;
+    --bad-soft: #3a2220;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #111513;
-  --surface: #181d1a;
-  --surface-2: #1f2522;
-  --ink: #e8ece9;
-  --muted: #9aa49e;
-  --line: #2c3430;
-  --brand: #6cc3a6;
-  --brand-ink: #0d1411;
-  --brand-soft: #1f3a31;
-  --ok: #6fcf97;
-  --ok-soft: #1c3527;
-  --warn: #f2c05c;
-  --warn-soft: #3a2f17;
-  --bad: #f08a8a;
-  --bad-soft: #3d2121;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  --bg: #131312;
+  --surface: #1b1a19;
+  --surface-2: #242321;
+  --ink: #edeae4;
+  --muted: #a29e97;
+  --line: #2f2d2a;
+  --brand: #d9e3dc;
+  --brand-ink: #131312;
+  --brand-soft: #25302a;
+  --ok: #7fc297;
+  --ok-soft: #1d2d22;
+  --warn: #e2b467;
+  --warn-soft: #362a17;
+  --bad: #e79a92;
+  --bad-soft: #3a2220;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
 }
 
 @theme inline {
@@ -76,8 +78,8 @@
   --color-warn-soft: var(--warn-soft);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
-  --font-sans: var(--font-manrope);
-  --font-display: var(--font-sora);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-serif);
   --font-mono: var(--font-jetbrains);
   --shadow-card: var(--shadow);
 }
@@ -94,7 +96,8 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-sora), system-ui, sans-serif;
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 

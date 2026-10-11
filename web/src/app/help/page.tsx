@@ -31,7 +31,7 @@ export default function Help() {
       <Card className="flex flex-col gap-4">
         <form onSubmit={submit} className="flex gap-2">
           <input value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Your question" maxLength={200}
-            className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2.5" />
+            className="min-w-0 flex-1 rounded-md border border-line bg-bg px-3 py-2.5" />
           <Button type="submit" variant="solid">Search</Button>
         </form>
         <p className="text-sm text-muted">

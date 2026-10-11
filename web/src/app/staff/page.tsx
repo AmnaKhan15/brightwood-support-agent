@@ -64,12 +64,12 @@ function SignIn() {
             void login(role, code);
           }}
         >
-          <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role" className="rounded-xl border border-line bg-surface px-2 py-2 text-sm">
+          <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role" className="rounded-md border border-line bg-surface px-2 py-2 text-sm">
             <option value="support_manager">support manager</option>
             <option value="agent">agent (test)</option>
           </select>
           <input type="password" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Staff access code" aria-label="Staff access code"
-            autoComplete="current-password" className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm" />
+            autoComplete="current-password" className="min-w-0 flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm" />
           <Button type="submit" size="sm" variant="solid" disabled={!code}>Sign in</Button>
         </form>
       )}
@@ -123,7 +123,7 @@ export default function Staff() {
             {note && <Note tone={note.tone}>{note.text}</Note>}
             <div className="flex flex-col gap-2.5">
               {data.approvals.length ? [...data.approvals].reverse().map((a) => (
-                <div key={a.id} className="flex flex-col gap-2 rounded-xl border border-line p-3">
+                <div key={a.id} className="flex flex-col gap-2 rounded-md border border-line p-3">
                   <div className="flex items-center justify-between gap-2">
                     <b>Refund {usd(a.amount)} · <span className="font-mono">{a.order_id}</span></b>
                     <Pill tone={a.status === "approved" ? "ok" : a.status === "rejected" ? "no" : "wait"}>{a.status}</Pill>
