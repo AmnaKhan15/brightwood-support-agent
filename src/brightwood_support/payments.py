@@ -59,8 +59,9 @@ class SimulatedPayments:
         return {"id": f"sim_re_{order_id}_{self._n}", "status": "succeeded"}
 
 
-def http_form_post(url: str, headers: dict, form: dict) -> dict:
-    data = urllib.parse.urlencode(form).encode()
+def http_form_post(url: str, headers: dict, form: dict | None) -> dict:
+    """POST a form to Stripe, or GET when `form` is None. Errors become PaymentError."""
+    data = urllib.parse.urlencode(form).encode() if form is not None else None
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded", **headers})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
@@ -94,6 +95,33 @@ class StripePayments:
         if data.get("status") != "succeeded" or "id" not in data:
             raise PaymentError(f"test payment did not succeed (status {data.get('status')!r})")
         return data["id"]
+
+    def create_checkout(self, product, shipping_cents: int, reference: str, success_url: str, cancel_url: str) -> dict:
+        """A Stripe Checkout session: Stripe's own page takes the card, so card details never reach this server.
+        The price comes from the catalogue. `reference` ties the session back to our pending purchase."""
+        form = {
+            "mode": "payment", "success_url": success_url, "cancel_url": cancel_url, "client_reference_id": reference,
+            "line_items[0][quantity]": 1, "line_items[0][price_data][currency]": "usd",
+            "line_items[0][price_data][unit_amount]": product.price_cents,
+            "line_items[0][price_data][product_data][name]": product.name,
+            "metadata[product_id]": product.id, "payment_intent_data[description]": f"Brightwood test order: {product.name}",
+        }
+        if shipping_cents:
+            form.update({"line_items[1][quantity]": 1, "line_items[1][price_data][currency]": "usd",
+                         "line_items[1][price_data][unit_amount]": shipping_cents,
+                         "line_items[1][price_data][product_data][name]": "Standard shipping"})
+        data = self._post(f"{API}/checkout/sessions", {**self._auth, "Idempotency-Key": f"checkout-{reference}"}, form)
+        if "id" not in data or "url" not in data:
+            raise PaymentError("unexpected Stripe reply to the checkout")
+        return {"id": data["id"], "url": data["url"]}
+
+    def get_checkout(self, session_id: str) -> dict:
+        """Ask Stripe directly whether a checkout was paid. The browser's word for it is never trusted."""
+        if not session_id.startswith("cs_") or not session_id.replace("_", "").isalnum():
+            raise PaymentError("not a Stripe checkout session id")
+        data = self._post(f"{API}/checkout/sessions/{session_id}", self._auth, None)
+        return {"id": data.get("id"), "paid": data.get("payment_status") == "paid", "payment_intent": data.get("payment_intent"),
+                "reference": data.get("client_reference_id"), "amount_total": data.get("amount_total")}
 
     def refund(self, payment_ref: str, amount_cents: int, idempotency_key: str, order_id: str, reason: str) -> dict:
         form = {"payment_intent": payment_ref, "amount": amount_cents, "reason": "requested_by_customer", "metadata[order_id]": order_id}

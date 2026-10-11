@@ -129,3 +129,6 @@ export type Metrics = {
 
 export type SearchHit = { id: string; heading: string; text: string; score: number };
 export type Article = { doc: string; chunks: { id: string; heading: string; text: string }[] };
+
+export type Product = { id: string; name: string; price_cents: number; tagline: string; final_sale: boolean; shipping_cents: number };
+export type CheckoutResult = { mode: "stripe"; url: string } | { mode: "simulated"; order_id: string };

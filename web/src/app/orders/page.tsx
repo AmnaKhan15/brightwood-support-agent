@@ -1,14 +1,46 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useApp, useAppState } from "@/components/providers";
 import { Button, Eyebrow, Note, Pill } from "@/components/ui";
 
 const STATUS_TONE = { delivered: "ok", cancelled: "neutral", shipped: "brand", processing: "wait" } as const;
 
 export default function Orders() {
-  const { openChat, customer } = useApp();
+  const { api, openChat, customer, notify, ready } = useApp();
+  const qc = useQueryClient();
   const { data, isLoading, error } = useAppState();
   const me = data?.customers.find((c) => c.id === customer);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  // Back from Stripe's checkout page: ask the server to confirm the payment with Stripe and create the order.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const sessionId = q.get("session_id");
+    if (!ready || q.get("checkout") !== "done" || !sessionId) return;
+    window.history.replaceState(null, "", "/orders");
+    api<{ status: string; order_id?: string }>("/api/checkout/confirm", { method: "POST", body: { session_id: sessionId } })
+      .then((r) => {
+        notify(r.status === "paid" ? `Payment received. Order ${r.order_id} is confirmed.` : "The payment hasn't completed yet.");
+        return qc.invalidateQueries({ queryKey: ["state"] });
+      })
+      .catch((e: Error) => setNote(e.message));
+  }, [ready, api, notify, qc]);
+
+  async function advance(orderId: string) {
+    setBusy(orderId);
+    setNote(null);
+    try {
+      await api(`/api/orders/${orderId}/advance`, { method: "POST", body: { customer } });
+      await qc.invalidateQueries({ queryKey: ["state"] });
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   if (error) return <Note tone="bad">{(error as Error).message}</Note>;
   if (isLoading || !data) return <p className="text-muted">Loading your orders…</p>;
@@ -20,8 +52,12 @@ export default function Orders() {
           <Eyebrow>Your account</Eyebrow>
           <h1 className="mt-1 text-3xl font-bold">Orders{me ? ` for ${me.name}` : ""}</h1>
         </div>
-        <p className="max-w-md text-sm text-muted">This is the live orders table from your sandbox database. Changes made by the assistant show up here.</p>
+        <p className="max-w-md text-sm text-muted">
+          The live orders table from your sandbox database. Changes made by the assistant show up here. The dashed demo buttons move an
+          order along as a carrier would, so you can try returns and refunds without waiting days.
+        </p>
       </div>
+      {note && <Note tone="bad">{note}</Note>}
       <div className="grid gap-4 md:grid-cols-2">
         {data.orders?.map((o) => {
           const refunds = data.refunds.filter((r) => r.order_id === o.order_id);
@@ -65,6 +101,12 @@ export default function Orders() {
                     <Button size="sm" onClick={() => openChat(`I'd like a refund for order ${o.order_id}`, true)}>Refund</Button>
                     <Button size="sm" variant="ghost" onClick={() => openChat(`Send me a return label for ${o.order_id}`, true)}>Return</Button>
                   </>
+                )}
+                {(o.status === "processing" || o.status === "shipped") && (
+                  <Button size="sm" variant="ghost" className="border-dashed !border-line" disabled={busy !== null} onClick={() => advance(o.order_id)}
+                    aria-label={`Demo control: mark ${o.order_id} as ${o.status === "processing" ? "shipped" : "delivered"}`}>
+                    {busy === o.order_id ? "…" : o.status === "processing" ? "Demo: mark shipped" : "Demo: mark delivered"}
+                  </Button>
                 )}
               </div>
             </article>

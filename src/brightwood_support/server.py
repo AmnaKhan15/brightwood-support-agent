@@ -21,6 +21,7 @@ from .auth import AuthError, Forbidden
 from .config import env_flag
 from .payments import PaymentError
 from .service import NoSuchSession, RateLimited, Service
+from .shop import NotFound, PolicyError
 from .telemetry import request_id, setup_logging, setup_otel
 
 log = logging.getLogger("brightwood.api")
@@ -42,6 +43,19 @@ class LoginIn(BaseModel):
 
 class DecisionIn(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
+
+
+class CheckoutIn(BaseModel):
+    customer: str = Field(max_length=10)
+    product_id: str = Field(max_length=40)
+
+
+class ConfirmIn(BaseModel):
+    session_id: str = Field(max_length=200)
+
+
+class CustomerIn(BaseModel):
+    customer: str = Field(max_length=10)
 
 
 def _error(status: int, code: str, message: str) -> JSONResponse:
@@ -107,6 +121,18 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
         where = ".".join(str(p) for p in first.get("loc", []) if p != "body")
         return _error(400, "bad_request", f"{where}: {first.get('msg', 'invalid')}" if where else "bad request")
 
+    @app.exception_handler(PolicyError)
+    async def _policy(_, e):
+        return _error(400, "policy", str(e))
+
+    @app.exception_handler(NotFound)
+    async def _missing(_, e):
+        return _error(404, "not_found", str(e))
+
+    @app.exception_handler(PaymentError)
+    async def _payment(_, e):
+        return _error(502, "payment", f"The payment provider had a problem: {e}")
+
     @app.exception_handler(ValueError)
     async def _value(_, e):
         return _error(400, "bad_request", str(e) or "bad request")
@@ -159,6 +185,25 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
     @app.get("/api/help/articles")
     def articles(s: Service = Svc):
         return s.articles()
+
+    @app.get("/api/products")
+    def products(s: Service = Svc):
+        return s.products()
+
+    @app.post("/api/checkout")
+    def checkout(body: CheckoutIn, x_session: str | None = Header(default=None), s: Service = Svc):
+        return s.checkout(x_session, body.customer, body.product_id)
+
+    @app.post("/api/checkout/confirm")
+    def confirm_checkout(body: ConfirmIn, x_session: str | None = Header(default=None), s: Service = Svc):
+        try:
+            return s.confirm_checkout(x_session, body.session_id)
+        except PaymentError as e:
+            return _error(400, "checkout", str(e))
+
+    @app.post("/api/orders/{order_id}/advance")
+    def advance_order(order_id: str, body: CustomerIn, x_session: str | None = Header(default=None), s: Service = Svc):
+        return s.advance_order(x_session, body.customer, order_id)
 
     @app.post("/api/staff/login")
     def login(body: LoginIn, request: Request, s: Service = Svc):

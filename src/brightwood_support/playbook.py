@@ -14,11 +14,17 @@ import json
 import re
 
 from .agent import Reply, ToolCall
+from .catalog import mentioned, without_product
+from .guardrails import looks_like_injection
 
 ORDER_ID = re.compile(r"\bO\d{4}\b", re.I)
 AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d{1,2})?)")
-from .guardrails import looks_like_injection  # noqa
 MIN_MATCH = 0.18
+# Greetings, thanks and one-word replies: answered politely, never searched or turned into a ticket.
+SMALL_TALK = re.compile(r"^\s*(hi|hello|hey|hiya|yo|good (morning|afternoon|evening)|thanks|thank you|thx|cheers|ok|okay|"
+                        r"done|cool|great|nice|got it|bye|goodbye|see you)\b[\s!.,?]*$", re.I)
+HELP_MENU = ("I can track an order, cancel one that hasn't shipped, send a return label, sort out a refund, "
+             "or answer questions about our policies. What would you like to do?")
 
 
 def _turn(messages: list[dict]) -> tuple[str, list[dict], list[str]]:
@@ -42,6 +48,30 @@ def _json(text: str):
         return json.loads(text)
     except ValueError:
         return None
+
+
+def _passages(done: list[dict]) -> list[tuple[str, float, str]]:
+    """Every (id, score, text) the help search returned, best first."""
+    out = []
+    for d in done:
+        if d["name"] == "search_help":
+            for line in d["result"].splitlines():
+                m = re.match(r"\[([^\]]+)\] \(match ([\d.]+)\) (.*)", line)
+                if m:
+                    out.append((m.group(1), float(m.group(2)), m.group(3)))
+    return out
+
+
+def _policy_answer(done: list[dict]) -> str | None:
+    """The best passage, plus a second confident one from the same article (a "return policy" question needs both
+    the 30-day window and how to send it back), each with its citation. None if nothing is confident."""
+    hits = [h for h in _passages(done) if h[1] >= MIN_MATCH]
+    if not hits:
+        return None
+    best = hits[0]
+    article = best[0].split("#")[0]
+    extra = next((h for h in hits[1:] if h[0].split("#")[0] == article), None)
+    return " ".join(f"{text} [{pid}]" for pid, _, text in [best, *([extra] if extra else [])])
 
 
 def _top_citation(done: list[dict]) -> tuple[str | None, str | None, float]:
@@ -89,6 +119,16 @@ class PlaybookModel:
         # 1. a message that tries to change the rules
         if looks_like_injection(text):
             return say("I can't change how I work, but I'm happy to help with your orders, returns or refunds. What do you need?")
+
+        # 1b. small talk: a friendly reply, no search, no ticket
+        if SMALL_TALK.match(text):
+            if re.search(r"thank|thx|cheers", t):
+                return say("You're welcome! Is there anything else I can help with?")
+            if re.search(r"bye|see you", t):
+                return say("Goodbye, and thanks for shopping with Brightwood.")
+            if re.search(r"^\s*(hi|hello|hey|hiya|yo|good )", t):
+                return say(f"Hi! {HELP_MENU}")
+            return say("Great. Is there anything else I can help with?")
 
         # 2. hand over to a person
         wants_person = re.search(r"human|real person|speak to|talk to (a |an )?(person|someone|agent)|manager", t) and "refund" not in t
@@ -190,12 +230,20 @@ class PlaybookModel:
                     bits.append(f"There has been no tracking movement for {quiet} days, which counts as lost. Say 'it hasn't arrived' and I'll open a ticket for a replacement or refund.")
             return say(" ".join(bits))
 
-        # 4. a policy question: answer from the passages the search returned
+        # 4. a policy question: answer from the passages the search returned.
+        #    A product name is not part of the question ("return policy for the oak side table"): search without it,
+        #    and say so plainly when the product is final sale.
+        product = mentioned(text)
         if "search_help" not in called:
-            return self._call("search_help", query=text[:200])
-        if cite_id and match >= MIN_MATCH:
-            return say(f"{cite_text}{cite()}")
-        if "escalate_to_human" not in called:
-            return self._call("escalate_to_human", summary=f"Question the help articles do not answer: {text[:160]}")
-        ticket = _json(done[-1]["result"]) or {}
-        return say(f"I couldn't find that in our help articles, so I've passed it to the support team as ticket #{ticket.get('ticket_id', '?')}.")
+            query = (without_product(text, product) if product else text)[:200]
+            if product and product.final_sale:
+                query = "final sale clearance items cannot be returned"
+            return self._call("search_help", query=query or text[:200])
+        if product and product.final_sale and cite_id:
+            return say(f"The {product.name.lower()} is a final-sale item, so it can't be returned or refunded. {cite_text}{cite()}")
+        answer = _policy_answer(done)
+        if answer:
+            return say(answer)
+        # Not confident: ask, don't open a ticket. A person is one sentence away if the customer wants one.
+        return say("I'm not sure I understood that. Could you say it another way? " + HELP_MENU +
+                   " If you'd rather talk to a person, just say so.")

@@ -252,6 +252,39 @@ class Shop:
             cur = self.db.execute("UPDATE refunds SET status=? WHERE provider_refund_id=?", (status, provider_refund_id))
         return cur.rowcount > 0
 
+    # --- buying (checkout) and the demo shipping control ------------------------------
+    def create_order(self, customer_id: str, product, provider: str, payment_ref: str) -> str:
+        """A paid order for one product, linked to its payment so a refund goes back to it. Returns the order id."""
+        from .catalog import shipping_for
+
+        shipping = shipping_for(product.price_cents)
+        with self._lock, self.db.transaction() as tx:
+            if tx.execute("SELECT 1 AS x FROM customers WHERE id=?", (customer_id,)).fetchone() is None:
+                raise KeyError(customer_id)
+            n = int(tx.execute("SELECT COUNT(*) AS n FROM orders").fetchone()["n"])
+            order_id = f"O{4001 + n}"
+            home = tx.execute("SELECT address FROM orders WHERE customer_id=? ORDER BY placed_on LIMIT 1", (customer_id,)).fetchone()
+            tx.execute("INSERT INTO orders VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (order_id, customer_id, "processing", self._today().isoformat(), None, None, None,
+                        product.price_cents + shipping, shipping, int(product.final_sale), home["address"] if home else "Demo address", None))
+            tx.execute("INSERT INTO order_items VALUES(?,?,?)", (order_id, product.name, product.price_cents))
+            tx.execute("INSERT INTO payments VALUES(?,?,?,?)", (order_id, provider, payment_ref, product.price_cents + shipping))
+        return order_id
+
+    def advance_order(self, customer_id: str, order_id: str) -> dict:
+        """Demo control: move an order one step along (processing → shipped → delivered), as the carrier would."""
+        row = self._order(customer_id, order_id)
+        today = self._today().isoformat()
+        with self._lock:
+            if row["status"] == "processing":
+                self.db.execute("UPDATE orders SET status='shipped', shipped_on=?, last_scan_on=?, tracking=? WHERE id=?",
+                                (today, today, f"TRK{order_id[1:]}", order_id))
+            elif row["status"] == "shipped":
+                self.db.execute("UPDATE orders SET status='delivered', delivered_on=?, last_scan_on=? WHERE id=?", (today, today, order_id))
+            else:
+                raise PolicyError(f"order {order_id} is {row['status']}; only processing or shipped orders can move on")
+        return self.get_order(customer_id, order_id)
+
     def create_ticket(self, customer_id: str, summary: str, order_id: str | None = None) -> dict:
         if order_id is not None:
             self._order(customer_id, order_id)

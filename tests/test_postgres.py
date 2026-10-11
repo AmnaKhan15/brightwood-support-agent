@@ -45,6 +45,16 @@ class PostgresTests(unittest.TestCase):
         self.assertGreaterEqual(second.metrics()["conversations"], 3)
         second.backend.close()
 
+    def test_buying_and_shipping_on_postgres(self):
+        svc = Service(env=ENV)
+        sid = svc.create_session()
+        order_id = svc.checkout(sid, "C1", "shelf")["order_id"]
+        self.assertEqual(svc.advance_order(sid, "C1", order_id)["status"], "shipped")
+        self.assertEqual(svc.advance_order(sid, "C1", order_id)["status"], "delivered")
+        self.assertIn(order_id, [o["order_id"] for o in svc.state(sid, "C1")["orders"]])
+        self.assertEqual(svc.checkouts.get(svc.checkouts.db.execute("SELECT reference FROM checkouts WHERE order_id=?", (order_id,)).fetchone()["reference"])["status"], "done")
+        svc.backend.close()
+
     def test_sandbox_is_a_schema_and_is_dropped(self):
         svc = Service(env=ENV)
         sid = svc.create_session()

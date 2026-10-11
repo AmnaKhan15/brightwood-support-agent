@@ -15,7 +15,7 @@ import json
 import logging
 
 from .chunking import Chunk
-from .embeddings import Embedder
+from .embeddings import Embedder, _stem, tokens
 from .semantic import SemanticEmbedder, hybrid
 
 log = logging.getLogger(__name__)
@@ -49,9 +49,23 @@ def _ranked(scored: list[tuple[Chunk, float]], k: int) -> list[tuple[Chunk, floa
 
 class _Chunks:
     _chunks: list[Chunk]
+    _vocab: tuple[int, frozenset[str]] = (-1, frozenset())
 
     def __len__(self) -> int:
         return len(self._chunks)
+
+    def _word_query(self, query: str) -> str:
+        """The query with words that appear in no help article removed, for word matching only.
+
+        Product names and filler ("the linen cushion cover set") never match an article, so for word
+        matching they only dilute the score of the words that do ("return policy"). The meaning-based
+        search still sees the whole question.
+        """
+        if self._vocab[0] != len(self._chunks):
+            words = {_stem(t) for c in self._chunks for t in tokens(_text(c))}
+            self._vocab = (len(self._chunks), frozenset(words))
+        kept = [t for t in tokens(query) if _stem(t) in self._vocab[1]]
+        return " ".join(kept) if kept else query
 
     @property
     def chunks(self) -> list[Chunk]:
@@ -85,7 +99,7 @@ class InMemoryStore(_Chunks):
         """Return the top-k (chunk, score) pairs, best first."""
         if not self._chunks:
             return []
-        q = self.embedder.embed(query)
+        q = self.embedder.embed(self._word_query(query))
         qs = _semantic_query(self.semantic if self._semantic_vectors is not None else None, query)
         scored = []
         for i, (c, v) in enumerate(zip(self._chunks, self._vectors)):
@@ -151,7 +165,7 @@ class PgVectorStore(_Chunks):
     def search(self, query: str, k: int = 3) -> list[tuple[Chunk, float]]:
         if not self._chunks:
             return []
-        qw = self.embedder.embed(query)
+        qw = self.embedder.embed(self._word_query(query))
         if not any(qw):
             return [(c, 0.0) for c in sorted(self._chunks, key=lambda c: c.id)[:k]]
         qs = _semantic_query(self.semantic if self._has_semantic else None, query)

@@ -1,18 +1,16 @@
-// The invented catalogue. Prices match the seeded orders in the store database.
+// How each product looks. Names and prices come from the server (GET /api/products); never from here.
 
-export type Product = { name: string; price: number; glyph: string; colors: [string, string]; tagline: string; clearance?: boolean };
-
-export const PRODUCTS: Product[] = [
-  { name: "Linen cushion cover set", price: 32, glyph: "cushion", colors: ["#d8ece4", "#a8d5c4"], tagline: "Stonewashed linen, set of two" },
-  { name: "Oak side table", price: 129, glyph: "table", colors: ["#f6e6cf", "#e7bd85"], tagline: "Solid oak, oiled finish" },
-  { name: "Ceramic planter (large)", price: 64.5, glyph: "planter", colors: ["#dcefe0", "#9fd0ad"], tagline: "Hand-glazed, with drainage" },
-  { name: "Wool throw blanket", price: 89, glyph: "throw", colors: ["#f3e3d8", "#e0b9a3"], tagline: "Lambswool, 130 x 180 cm" },
-  { name: "Ceramic table lamp", price: 100, glyph: "lamp", colors: ["#dfe8f3", "#a9c2e2"], tagline: "Linen shade, braided cord" },
-  { name: "Glass storage jar", price: 18, glyph: "jar", colors: ["#e0f0f4", "#a9d3dd"], tagline: "Borosilicate, bamboo lid" },
-  { name: "Clearance stoneware mug", price: 13, glyph: "mug", colors: ["#e3e8f7", "#b4c4ec"], tagline: "Last pieces. Final sale", clearance: true },
-  { name: "Walnut bookshelf", price: 88, glyph: "shelf", colors: ["#efe3d6", "#cdb08e"], tagline: "Four tiers, flat-pack" },
-  { name: "Cotton tea towels", price: 36, glyph: "towels", colors: ["#e9efe0", "#c2d4a8"], tagline: "Set of four, woven cotton" },
-];
+export const VISUALS: Record<string, { colors: [string, string] }> = {
+  cushion: { colors: ["#d8ece4", "#a8d5c4"] },
+  table: { colors: ["#f6e6cf", "#e7bd85"] },
+  planter: { colors: ["#dcefe0", "#9fd0ad"] },
+  throw: { colors: ["#f3e3d8", "#e0b9a3"] },
+  lamp: { colors: ["#dfe8f3", "#a9c2e2"] },
+  jar: { colors: ["#e0f0f4", "#a9d3dd"] },
+  mug: { colors: ["#e3e8f7", "#b4c4ec"] },
+  shelf: { colors: ["#efe3d6", "#cdb08e"] },
+  towels: { colors: ["#e9efe0", "#c2d4a8"] },
+};
 
 // Static, trusted SVG markup for each product (no user input ever reaches these strings).
 export const GLYPHS: Record<string, string> = {

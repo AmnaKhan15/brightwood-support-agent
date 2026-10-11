@@ -328,8 +328,9 @@ def run_agent(
         config["configurable"] = {"thread_id": thread_id or "default"}
     else:
         start["history"] = list(history or [])
-    # One checkpoint at the end of the turn, not one per step: only the history has to survive.
-    final = _graph_for(checkpointer).invoke(start, config, context=turn, durability="exit")
+    # With a checkpointer: one save at the end of the turn, not one per step; only the history has to survive.
+    extra = {"durability": "exit"} if checkpointer is not None else {}
+    final = _graph_for(checkpointer).invoke(start, config, context=turn, **extra)
 
     return RunResult(
         final.get("final"), final.get("stopped") or "step_cap", final.get("steps", 0), turn.budget.used,

@@ -29,10 +29,11 @@ from typing import Callable
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
-from . import jobs, workflows
+from . import catalog, jobs, workflows
 from .agent import GENERALIST, SPECIALISTS, KeywordRouter, LLMRouter, run_agent
 from .approvals import ROLE_RANK, ApprovalQueue, ShopApprovals
 from .auth import AuthError, Forbidden, role_of, verify_token
+from .checkout import Checkouts
 from .config import env_flag
 from .db import Backend, backend_from_env
 from .gateway import Gateway, Provider
@@ -152,6 +153,8 @@ class Service:
         self.checkpointer = self.backend.checkpointer(SERDE)
         self.approvals = workflows.build_approval_graph(self._carry_out, self.checkpointer)
         self.runlog = RunLog(self.backend.main)
+        self.checkouts = Checkouts(self.backend.main)
+        self.site_url = env.get("SITE_URL", "http://localhost:3000").rstrip("/")
         self.idp = BuiltInIdP()
         self.payments = payments_from_env(env)
         self.webhook_secret = env.get("STRIPE_WEBHOOK_SECRET", "")
@@ -496,13 +499,95 @@ class Service:
             docs.setdefault(c.doc, []).append({"id": c.id, "heading": c.heading, "text": c.text})
         return [{"doc": d, "chunks": cs} for d, cs in docs.items()]
 
+    # --- buying ---------------------------------------------------------------------------
+    def products(self) -> list[dict]:
+        return [p.public() for p in catalog.PRODUCTS]
+
+    def _peek(self, sid: str) -> Session | None:
+        """A sandbox without counting as a visit (its idle timer is left alone)."""
+        with self._lock:
+            if self.registry.last_used(sid) is None:
+                return None
+            return self.sessions.get(sid) or self._open(sid, create=False)
+
+    def checkout(self, sid: str, cid: str, product_id: str) -> dict:
+        """Start a purchase. With Stripe: a Checkout page to send the customer to. Without: a simulated, instant payment."""
+        s = self.session(sid)
+        if cid not in s.names:
+            raise KeyError(cid)
+        try:
+            product = catalog.product(product_id)
+        except KeyError:
+            raise ValueError("unknown product") from None
+        if not self.limiter.allow(f"checkout:{sid}", 10):
+            raise RateLimited("too many checkouts; wait a minute")
+        reference = self.checkouts.start(sid, cid, product.id)
+        if hasattr(self.payments, "create_checkout"):
+            session = self.payments.create_checkout(
+                product, catalog.shipping_for(product.price_cents), reference,
+                success_url=f"{self.site_url}/orders?checkout=done&session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{self.site_url}/?checkout=cancelled")
+            self.checkouts.attach_session(reference, session["id"])
+            return {"mode": "stripe", "url": session["url"]}
+        order_id = self._fulfil(reference, f"sim_pay_{reference}")
+        return {"mode": "simulated", "order_id": order_id}
+
+    def confirm_checkout(self, sid: str, session_id: str) -> dict:
+        """The success page asks: is this checkout paid? The server checks with Stripe itself before creating anything."""
+        self.session(sid)
+        if not hasattr(self.payments, "get_checkout"):
+            raise ValueError("checkout confirmation needs Stripe")
+        info = self.payments.get_checkout(session_id)
+        row = self.checkouts.get(info["reference"] or "")
+        if row is None or row["sid"] != sid:
+            raise ValueError("this checkout does not belong to your sandbox")
+        if not info["paid"]:
+            return {"status": "unpaid"}
+        return {"status": "paid", "order_id": self._fulfil(info["reference"], info["payment_intent"])}
+
+    def _fulfil(self, reference: str, payment_ref: str) -> str | None:
+        """Create the order for a paid purchase, exactly once (webhook and success page may both arrive)."""
+        row = self.checkouts.claim(reference)
+        if row is None:  # already done (or unknown): report what exists
+            done = self.checkouts.get(reference)
+            return done["order_id"] if done else None
+        s = self._peek(row["sid"])
+        if s is None:  # the sandbox expired before payment completed; nothing to attach the order to
+            self.checkouts.release(reference)
+            return None
+        product = catalog.product(row["product_id"])
+        try:
+            with s.lock:
+                order_id = s.shop.create_order(row["customer_id"], product, self.payments.name, payment_ref)
+                s.shop.log_audit("checkout", "system", "order_placed", f"{order_id}: {product.name} paid via {self.payments.name}")
+                s.shop.log_message(row["customer_id"], "system", f"Thanks! Order {order_id} for the {product.name} is confirmed. "
+                                   "Ask me here if you need to track, cancel or return it.")
+        except Exception:
+            self.checkouts.release(reference)
+            raise
+        self.checkouts.finish(reference, order_id)
+        log.info("order placed", extra={"ctx": {"order_id": order_id, "product": product.id, "payments": self.payments.name}})
+        return order_id
+
+    def advance_order(self, sid: str, cid: str, order_id: str) -> dict:
+        """Demo control: ship or deliver an order now, so returns and refunds can be tried without waiting days."""
+        s = self.session(sid)
+        if cid not in s.names:
+            raise KeyError(cid)
+        with s.lock:
+            order = s.shop.advance_order(cid, order_id)
+            s.shop.log_audit("demo", "system", f"order_{order['status']}", f"{order_id} marked {order['status']} with the demo control")
+        return order
+
     # --- payments webhooks ------------------------------------------------------------
     def handle_webhook(self, payload: bytes, signature: str | None) -> dict:
-        """Verify a Stripe event now, apply it in the background."""
+        """Verify a Stripe event, then apply it: a paid checkout creates its order, a refund update changes its status."""
         if not self.webhook_secret:
             raise PaymentError("webhooks are not enabled on this server")
         event = verify_webhook(payload, signature, self.webhook_secret)
         obj = (event.get("data") or {}).get("object") or {}
+        if event.get("type") == "checkout.session.completed" and obj.get("payment_status") == "paid" and obj.get("client_reference_id"):
+            return {"queued": False, "order_id": self._fulfil(obj["client_reference_id"], obj.get("payment_intent") or "")}
         if obj.get("object") != "refund" or "id" not in obj:
             return {"queued": False, "updated": 0}
         updated = jobs.enqueue(jobs.apply_refund_event, obj["id"], obj.get("status", "unknown"), now=self.apply_refund_status)
