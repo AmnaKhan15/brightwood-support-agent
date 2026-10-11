@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/* Design tokens. Light by default, dark from the system, and a manual override via <html data-theme>. */
+:root {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --surface-2: #f1eee7;
+  --ink: #1d2320;
+  --muted: #5f6762;
+  --line: #e2ddd3;
+  --brand: #2f6f5e;
+  --brand-ink: #ffffff;
+  --brand-soft: #e3efe9;
+  --ok: #2f7d4f;
+  --ok-soft: #e2f2e8;
+  --warn: #9a6400;
+  --warn-soft: #fbefd6;
+  --bad: #b23a3a;
+  --bad-soft: #f8e1e1;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111513;
+    --surface: #181d1a;
+    --surface-2: #1f2522;
+    --ink: #e8ece9;
+    --muted: #9aa49e;
+    --line: #2c3430;
+    --brand: #6cc3a6;
+    --brand-ink: #0d1411;
+    --brand-soft: #1f3a31;
+    --ok: #6fcf97;
+    --ok-soft: #1c3527;
+    --warn: #f2c05c;
+    --warn-soft: #3a2f17;
+    --bad: #f08a8a;
+    --bad-soft: #3d2121;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #111513;
+  --surface: #181d1a;
+  --surface-2: #1f2522;
+  --ink: #e8ece9;
+  --muted: #9aa49e;
+  --line: #2c3430;
+  --brand: #6cc3a6;
+  --brand-ink: #0d1411;
+  --brand-soft: #1f3a31;
+  --ok: #6fcf97;
+  --ok-soft: #1c3527;
+  --warn: #f2c05c;
+  --warn-soft: #3a2f17;
+  --bad: #f08a8a;
+  --bad-soft: #3d2121;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-sans: var(--font-manrope);
+  --font-display: var(--font-sora);
+  --font-mono: var(--font-jetbrains);
+  --shadow-card: var(--shadow);
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-sora), system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+.typing i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px;
+  border-radius: 9999px;
+  background: var(--muted);
+  animation: blink 1.2s infinite;
+}
+.typing i:nth-child(2) { animation-delay: 0.2s; }
+.typing i:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
