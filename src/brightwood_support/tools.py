@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .approvals import cents, required_approver
-from .rag import InMemoryStore
 from .shop import NotFound, PolicyError, Shop
 
 
@@ -35,9 +34,15 @@ def _json_type(allowed: tuple) -> str:
 
 
 class ToolBox:
-    def __init__(self, tools: list[Tool], policy: Callable[[str, dict], str | None] = required_approver) -> None:
+    def __init__(self, tools: list[Tool], policy: Callable[[str, dict], str | None] = required_approver,
+                 approved: dict[str, Callable[..., Any]] | None = None) -> None:
         self._tools = {t.name: t for t in tools}
         self._policy = policy
+        self._approved = approved or {}
+
+    def restricted(self, names: tuple[str, ...] | list[str]) -> "ToolBox":
+        """The same tools and rules, limited to `names`. Each specialist agent only gets its own tools."""
+        return ToolBox([t for n, t in self._tools.items() if n in names], self._policy, self._approved)
 
     def names(self) -> list[str]:
         return sorted(self._tools)
@@ -46,7 +51,8 @@ class ToolBox:
         return self._tools[name]
 
     def executors(self) -> dict[str, Callable[..., Any]]:
-        return {name: t.fn for name, t in self._tools.items()}
+        """What the approval queue runs once a person approves. A refund run this way is recorded as the manager's."""
+        return {name: self._approved.get(name, t.fn) for name, t in self._tools.items()}
 
     def specs(self) -> list[dict]:
         return [
@@ -78,8 +84,9 @@ class ToolBox:
         return None
 
 
-def build_toolbox(help_store: InMemoryStore, shop: Shop, customer_id: str) -> ToolBox:
-    auto_refunded = {"cents": 0}  # what the assistant has refunded alone in this conversation
+def build_toolbox(help_store, shop: Shop, customer_id: str) -> ToolBox:
+    # What the assistant has refunded alone for this customer. Read from the database, so a restart cannot reset the cap.
+    auto_refunded = {"cents": shop.assistant_refunded_cents(customer_id)}
 
     def search_help(query: str) -> str:
         hits = help_store.search(query, k=3)
@@ -98,11 +105,14 @@ def build_toolbox(help_store: InMemoryStore, shop: Shop, customer_id: str) -> To
         return json.dumps(shop.send_return_label(customer_id, order_id))
 
     def request_refund(order_id: str, amount: float, reason: str) -> str:
-        # Runs directly for small refunds, or from the approval screen for large ones.
-        result = shop.issue_refund(customer_id, order_id, amount, reason)
-        if required_approver("request_refund", {"amount": amount}) is None:
-            auto_refunded["cents"] += cents(amount)
+        # Runs directly only when the approval gate let it through (small enough, under the cap).
+        result = shop.issue_refund(customer_id, order_id, amount, reason, via="assistant")
+        auto_refunded["cents"] += cents(amount)
         return json.dumps(result)
+
+    def approved_refund(order_id: str, amount: float, reason: str) -> str:
+        # Runs from the approval queue after a support manager said yes.
+        return json.dumps(shop.issue_refund(customer_id, order_id, amount, reason, via="manager"))
 
     def refund_precheck(order_id: str, amount: float, reason: str) -> str | None:
         """Refuse a refund the rules would never allow, before it can reach a manager's queue."""
@@ -132,4 +142,4 @@ def build_toolbox(help_store: InMemoryStore, shop: Shop, customer_id: str) -> To
              {"order_id": (str,), "amount": (int, float), "reason": (str,)}, request_refund, precheck=refund_precheck),
         Tool("escalate_to_human", "Hand the conversation to a person by opening a ticket with a short summary. Use it for damaged goods, lost parcels, warranty claims, or anything you cannot decide.",
              {"summary": (str,)}, escalate_to_human),
-    ], policy=policy)
+    ], policy=policy, approved={"request_refund": approved_refund})

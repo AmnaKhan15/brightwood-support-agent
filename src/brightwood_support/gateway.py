@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .agent import Model, Reply
-from .reliability import CallTimeout, call_with_timeout
+from .reliability import call_with_timeout
 
 
 class AllProvidersFailed(Exception):

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .agent import Reply, ScriptedModel, ToolCall, run_agent
+from .agent import KeywordRouter, LLMRouter, Reply, ScriptedModel, ToolCall, run_agent
 from .approvals import ApprovalQueue
 from .gateway import Gateway, Provider
 from .guardrails import mask_private
@@ -42,6 +42,17 @@ class Scenario:
     check: Callable[[object, Shop, ApprovalQueue], str | None]  # None = pass, else the reason
     options: dict | None = None
     wrap: Callable[[ScriptedModel], object] | None = None
+    router: Callable[[], object] | None = None  # a scenario that tests the supervisor brings its own
+
+
+class FixedRouter:
+    """Sends every message to one specialist, to test what that specialist can and cannot do."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def route(self, text: str) -> tuple[str, str, int]:
+        return self.name, "fixed for this scenario", 0
 
 
 def _store() -> InMemoryStore:
@@ -121,6 +132,27 @@ SCENARIOS: list[Scenario] = [
     Scenario("damaged goods go to a person", "rules", "C2", "The lamp arrived broken",
              lambda: [call("escalate_to_human", summary="Lamp in O2001 broken"), say("A person will help.")],
              lambda r, s, q: expect(len(s.tickets()) == 1 and not s.refunds(), "ticket missing or money moved")),
+    # --- multi-agent: the supervisor and least privilege per specialist ---
+    Scenario("the policy specialist cannot move money", "least-privilege", "C1", "What is the refund policy?",
+             lambda: [call("request_refund", order_id="O1001", amount=20, reason="x"), say("I can't do that.")],
+             lambda r, s, q: expect(r.tool_log[0]["status"] == "rejected" and not s.refunds(), "policy agent reached the refund tool"),
+             router=lambda: FixedRouter("policy")),
+    Scenario("the policy specialist cannot read orders", "least-privilege", "C1", "What is the refund policy?",
+             lambda: [call("list_orders"), say("I can't see orders.")],
+             lambda r, s, q: expect(r.tool_log[0]["status"] == "rejected" and "O1001" not in str(r.messages), "policy agent read orders"),
+             router=lambda: FixedRouter("policy")),
+    Scenario("the supervisor sends refunds to billing", "routing", "C1", "Refund order O1001 $20",
+             lambda: [call("request_refund", order_id="O1001", amount=20, reason="asked"), say("Done.")],
+             lambda r, s, q: expect(r.agent == "billing" and len(s.refunds()) == 1, f"agent={r.agent}"),
+             router=KeywordRouter),
+    Scenario("the supervisor sends policy questions to the policy agent", "routing", "C1", "How long is the return window?",
+             lambda: [say("30 days.")],
+             lambda r, s, q: expect(r.agent == "policy", f"agent={r.agent}"),
+             router=KeywordRouter),
+    Scenario("a broken model router falls back to the keyword rules", "routing", "C2", "Refund order O2001",
+             lambda: [call("request_refund", order_id="O2001", amount=189, reason="asked"), say("A manager will review it.")],
+             lambda r, s, q: expect(r.agent == "billing" and len(q.pending()) == 1, f"agent={r.agent}"),
+             router=lambda: LLMRouter(_Broken())),
 ]
 
 
@@ -142,16 +174,21 @@ def _manager_approves(q: ApprovalQueue, s: Shop) -> str | None:
     return expect(len(s.refunds()) == 1 and s.refunds()[0]["amount_cents"] == 18900, "approved refund did not run")
 
 
-def run_all() -> list[dict]:
+def run_all(multi_agent: bool = False) -> list[dict]:
+    """Run every scenario. With multi_agent, scenarios without their own router go through the keyword supervisor."""
     results = []
     store = _store()
     for sc in SCENARIOS:
+        if sc.router is not None:
+            router = sc.router()
+        else:
+            router = KeywordRouter() if multi_agent else None
         shop = Shop()
         toolbox = build_toolbox(store, shop, sc.customer)
         queue = ApprovalQueue(toolbox.executors())
         model = ScriptedModel(sc.replies())
         wrapped = sc.wrap(model) if sc.wrap else model
-        result = run_agent(wrapped, toolbox, queue, sc.user, mask=mask_private, sleep=lambda s: None, **(sc.options or {}))
+        result = run_agent(wrapped, toolbox, queue, sc.user, mask=mask_private, sleep=lambda s: None, router=router, **(sc.options or {}))
         try:
             failure = sc.check(result, shop, queue)
         except Exception as error:  # noqa: BLE001 - a crashing check is a failed scenario
@@ -161,12 +198,16 @@ def run_all() -> list[dict]:
 
 
 def main() -> int:
-    results = run_all()
-    for r in results:
-        print(("PASS " if r["passed"] else "FAIL ") + f"[{r['category']}] {r['name']}" + ("" if r["passed"] else f"  <- {r['reason']}"))
-    failed = [r for r in results if not r["passed"]]
-    print(f"\n{len(results) - len(failed)}/{len(results)} scenarios passed")
-    return 1 if failed else 0
+    failed_total = 0
+    for multi in (False, True):
+        results = run_all(multi_agent=multi)
+        print(f"== {'multi-agent (supervisor + specialists)' if multi else 'single agent'} ==")
+        for r in results:
+            print(("PASS " if r["passed"] else "FAIL ") + f"[{r['category']}] {r['name']}" + ("" if r["passed"] else f"  <- {r['reason']}"))
+        failed = [r for r in results if not r["passed"]]
+        failed_total += len(failed)
+        print(f"{len(results) - len(failed)}/{len(results)} scenarios passed\n")
+    return 1 if failed_total else 0
 
 
 if __name__ == "__main__":

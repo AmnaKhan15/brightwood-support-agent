@@ -1,0 +1,7 @@
+-r requirements.txt
+-r requirements-mcp.txt
+# Tests, lint, evals
+httpx>=0.28,<1
+ruff>=0.17
+openevals>=0.2,<1
+pgserver>=0.1.4; platform_machine == "AMD64" or platform_machine == "x86_64" or platform_machine == "arm64"

@@ -16,7 +16,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from brightwood_support.rag import HashingEmbedder, InMemoryStore, evaluate, gate, load_corpus  # noqa: E402
+from brightwood_support.rag import (  # noqa: E402
+    HashingEmbedder,
+    InMemoryStore,
+    evaluate,
+    gate,
+    load_corpus,
+)
 
 
 def build_retriever(store: InMemoryStore):

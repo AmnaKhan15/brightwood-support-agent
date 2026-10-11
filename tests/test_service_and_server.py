@@ -1,18 +1,23 @@
-import json
-import threading
+import types
 import unittest
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
+
+from fastapi.testclient import TestClient
 
 from brightwood_support.auth import AuthError, Forbidden
-from brightwood_support.server import make_handler
-from brightwood_support.service import AiBudget, NoSuchSession, RateLimited, Service
+from brightwood_support.server import create_app
+from brightwood_support.service import NoSuchSession, RateLimited, Service
+from brightwood_support.state import AiBudget
+
+DEMO = {"DEMO_STAFF_LOGIN": "true"}
+
+
+def down():
+    return types.SimpleNamespace(next=lambda *a: (_ for _ in ()).throw(ConnectionError("down")))
 
 
 class ServiceTests(unittest.TestCase):
     def setUp(self):
-        self.svc = Service(env={}, per_minute=3)
+        self.svc = Service(env=DEMO, per_minute=3)
         self.sid = self.svc.create_session()
 
     def test_reply_is_recorded_in_the_database(self):
@@ -21,7 +26,18 @@ class ServiceTests(unittest.TestCase):
         st = self.svc.state(self.sid, "C1")
         self.assertEqual([m["role"] for m in st["messages"]], ["customer", "assistant"])
         self.assertEqual(st["runs"][0]["tools"], "search_help")
+        self.assertEqual(st["runs"][0]["agent"], "policy")
         self.assertTrue(r["inspect"]["retrieved"])
+
+    def test_the_supervisor_picks_a_specialist_and_it_shows_in_the_inspector(self):
+        r = self.svc.chat(self.sid, "C2", "Refund order O2001")
+        self.assertEqual(r["inspect"]["agent"], "billing")
+        self.assertIn("billing agent", r["inspect"]["steps"][0]["title"])
+
+    def test_history_carries_across_turns(self):
+        self.svc.chat(self.sid, "C1", "Where is order O1002?")
+        self.svc.chat(self.sid, "C1", "Cancel it please")
+        self.assertEqual(self.svc.state(self.sid, "C1")["orders"][0]["status"], "cancelled")
 
     def test_end_to_end_approval_with_roles(self):
         self.svc.chat(self.sid, "C2", "Refund order O2001")
@@ -31,11 +47,19 @@ class ServiceTests(unittest.TestCase):
             self.svc.decide(self.sid, agent, 1, True)
         with self.assertRaises(AuthError):
             self.svc.decide(self.sid, "not-a-token", 1, True)
-        self.svc.decide(self.sid, self.svc.staff_login("support_manager"), 1, True)
+        out = self.svc.decide(self.sid, self.svc.staff_login("support_manager"), 1, True)
+        self.assertEqual(out["status"], "approved")
         st = self.svc.state(self.sid, "C2")
-        self.assertEqual(st["refunds"][0]["amount_cents"], 18900)
+        self.assertEqual((st["refunds"][0]["amount_cents"], st["refunds"][0]["via"]), (18900, "manager"))
         self.assertIn("approved your refund", st["messages"][-1]["text"])
         self.assertEqual([a["action"] for a in st["audit"]][:2], ["approved", "denied_approve"])
+        with self.assertRaises(ValueError):  # already decided
+            self.svc.decide(self.sid, self.svc.staff_login("support_manager"), 1, False)
+
+    def test_approval_workflow_waits_in_the_checkpointer(self):
+        self.svc.chat(self.sid, "C2", "Refund order O2001")
+        snap = self.svc.approvals.get_state({"configurable": {"thread_id": f"approval:{self.sid}:1"}})
+        self.assertEqual(snap.next, ("wait_for_manager",))
 
     def test_voice_flag_adds_the_spoken_style_instruction(self):
         r = self.svc.chat(self.sid, "C1", "hi", voice=True)
@@ -62,66 +86,108 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.svc.chat(self.sid, "C9", "hi")
 
-    def test_session_expiry(self):
+    def test_session_expiry_and_cleanup(self):
         t = [1000.0]
-        svc = Service(env={}, ttl=60, clock=lambda: t[0])
+        svc = Service(env=DEMO, ttl=60, clock=lambda: t[0])
         sid = svc.create_session()
         t[0] += 61
         with self.assertRaises(NoSuchSession):
             svc.session(sid)
+        self.assertEqual(svc.registry.count(), 0)
+
+    def test_reset_gives_fresh_orders(self):
+        self.svc.chat(self.sid, "C1", "Cancel order O1002")
+        self.svc.reset(self.sid)
+        self.assertEqual(self.svc.state(self.sid, "C1")["orders"][0]["status"], "processing")
 
     def test_daily_cap_on_real_model_calls(self):
         b = AiBudget(2)
         self.assertEqual([b.take(), b.take(), b.take()], [True, True, False])
+        self.assertEqual(b.used, 2)
 
     def test_real_model_down_falls_back_to_offline(self):
-        svc = Service(env={"GEMINI_API_KEY": "k", "GEMINI_MODEL": "m"})  # no network in tests: the call fails
-        svc.gateway.tiers["fast"][0].model._model._post = lambda *a: (_ for _ in ()).throw(ConnectionError("down"))
-        svc.gateway.tiers["strong"][0].model._model._post = lambda *a: (_ for _ in ()).throw(ConnectionError("down"))
+        svc = Service(env={"GEMINI_API_KEY": "k", "GEMINI_MODEL": "m", "SEMANTIC_SEARCH": "off"})
+        svc.gateway.tiers["fast"][0].model._model = down()
+        svc.gateway.tiers["strong"][0].model._model = down()
+        svc.router._model = down()
         r = svc.chat(svc.create_session(), "C1", "How long is the return window?")
         self.assertEqual(r["inspect"]["provider"], "offline-assistant")
+        self.assertEqual(r["inspect"]["agent"], "policy")  # the keyword rules took over routing
         self.assertGreaterEqual(svc.gateway.fallbacks, 1)
+        self.assertEqual(svc.metrics()["fallback_rate"], 1.0)
+
+    def test_metrics_and_targets(self):
+        self.svc.chat(self.sid, "C1", "How long is the return window?")
+        self.svc.chat(self.sid, "C2", "Refund order O2001")
+        self.svc.chat(self.sid, "C2", "The lamp in O2001 arrived broken")
+        m = self.svc.metrics()
+        self.assertEqual(m["conversations"], 3)
+        self.assertAlmostEqual(m["containment_rate"], 1 / 3, places=3)
+        self.assertAlmostEqual(m["approval_rate"], 1 / 3, places=3)
+        self.assertAlmostEqual(m["escalation_rate"], 1 / 3, places=3)
+        self.assertEqual(m["by_agent"], {"billing": 1, "orders": 1, "policy": 1})
+        self.assertIn("containment_rate", [t["metric"] for t in m["targets"]])
+
+
+class StaffLoginTests(unittest.TestCase):
+    def test_off_by_default(self):
+        with self.assertRaises(Forbidden):
+            Service(env={}).staff_login("support_manager")
+
+    def test_access_code_and_lockout(self):
+        svc = Service(env={"STAFF_ACCESS_CODE": "s3cret-code"})
+        self.assertTrue(svc.staff_login("support_manager", code="s3cret-code", client="a"))
+        for _ in range(5):  # five attempts per client per five minutes
+            with self.assertRaises(AuthError):
+                svc.staff_login("support_manager", code="guess", client="b")
+        with self.assertRaises(RateLimited):
+            svc.staff_login("support_manager", code="s3cret-code", client="b")
+
+    def test_demo_mode(self):
+        self.assertTrue(Service(env=DEMO).staff_login("support_manager"))
 
 
 class HttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Service(env={})))
-        cls.port = cls.server.server_address[1]
-        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.client = TestClient(create_app(Service(env=DEMO)))
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.server.shutdown()
-
-    def req(self, method, path, body=None, headers=None):
-        r = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", method=method, data=json.dumps(body).encode() if body is not None else None, headers=headers or {})
-        try:
-            with urllib.request.urlopen(r) as resp:
-                return resp.status, resp.read()
-        except urllib.error.HTTPError as e:
-            return e.code, e.read()
+    def session(self):
+        return {"X-Session": self.client.post("/api/session").json()["session"]}
 
     def test_flow(self):
-        _, b = self.req("POST", "/api/session", {})
-        sid = json.loads(b)["session"]
-        h = {"X-Session": sid}
-        code, b = self.req("POST", "/api/chat", {"customer": "C1", "message": "Where is order O1003?"}, h)
-        self.assertEqual(code, 200)
-        self.assertIn("shipped", json.loads(b)["reply"])
-        self.assertEqual(self.req("POST", "/api/chat", {"customer": "C1", "message": "hi"}, {"X-Session": "bad"})[0], 401)
-        self.assertEqual(self.req("POST", "/api/chat", {"customer": "C1"}, h)[0], 400)
-        self.assertEqual(self.req("POST", "/api/approvals/1", {"decision": "approve"}, h)[0], 401)  # no token
-        self.assertEqual(self.req("GET", "/api/health")[0], 200)
+        h = self.session()
+        r = self.client.post("/api/chat", json={"customer": "C1", "message": "Where is order O1003?"}, headers=h)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("shipped", r.json()["reply"])
+        self.assertTrue(r.headers["X-Request-ID"])
+        self.assertEqual(self.client.post("/api/chat", json={"customer": "C1", "message": "hi"}, headers={"X-Session": "bad"}).json()["error"], "session_expired")
+        self.assertEqual(self.client.post("/api/chat", json={"customer": "C1"}, headers=h).status_code, 400)
+        self.assertEqual(self.client.post("/api/approvals/1", json={"decision": "approve"}, headers=h).status_code, 401)
+        self.assertEqual(self.client.post("/api/approvals/1", json={"decision": "maybe"}, headers=h).status_code, 400)
+        self.assertEqual(self.client.get("/api/health").status_code, 200)
 
-    def test_static_files_cannot_escape_the_site_folder(self):
-        code, body = self.req("GET", "/../../src/brightwood_support/server.py")
-        self.assertNotIn(b"MAX_BODY", body)
+    def test_approval_over_http(self):
+        h = self.session()
+        self.client.post("/api/chat", json={"customer": "C2", "message": "Refund order O2001"}, headers=h)
+        token = self.client.post("/api/staff/login", json={"role": "support_manager"}).json()["token"]
+        r = self.client.post("/api/approvals/1", json={"decision": "approve"}, headers={**h, "Authorization": f"Bearer {token}"})
+        self.assertEqual((r.status_code, r.json()["status"]), (200, "approved"))
+
+    def test_unknown_table_and_paths(self):
+        h = self.session()
+        self.assertEqual(self.client.get("/api/table/payments", headers=h).status_code, 400)
+        self.assertEqual(self.client.get("/api/table/messages", headers=h).status_code, 200)
+        self.assertEqual(self.client.get("/../../src/brightwood_support/server.py").status_code, 404)
 
     def test_oversized_body_rejected(self):
-        _, b = self.req("POST", "/api/session", {})
-        code, _ = self.req("POST", "/api/chat", {"customer": "C1", "message": "x" * 9000}, {"X-Session": json.loads(b)["session"]})
-        self.assertEqual(code, 400)
+        h = self.session()
+        r = self.client.post("/api/chat", json={"customer": "C1", "message": "x" * 9000}, headers=h)
+        self.assertEqual(r.status_code, 400)
+
+    def test_metrics_and_openapi(self):
+        self.assertIn("targets", self.client.get("/api/metrics").json())
+        self.assertIn("/api/chat", self.client.get("/api/openapi.json").json()["paths"])
 
 
 if __name__ == "__main__":

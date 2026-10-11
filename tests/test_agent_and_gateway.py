@@ -1,11 +1,16 @@
 import unittest
 
 from brightwood_support import agent_eval
-from brightwood_support.agent import Reply, ToolCall
-from brightwood_support.approvals import AGENT_REFUND_LIMIT_CENTS, required_approver
-from brightwood_support.gateway import AllProvidersFailed, CircuitBreaker, Gateway, Provider
+from brightwood_support.agent import KeywordRouter, LLMRouter, Reply, ToolCall
+from brightwood_support.approvals import required_approver
+from brightwood_support.gateway import (
+    AllProvidersFailed,
+    CircuitBreaker,
+    Gateway,
+    Provider,
+)
 from brightwood_support.guardrails import looks_like_injection, mask_private
-from brightwood_support.providers import GeminiModel, to_gemini
+from brightwood_support.providers import LangChainModel, to_langchain
 
 
 class Flaky:
@@ -73,21 +78,59 @@ class GatewayTests(unittest.TestCase):
         self.assertGreaterEqual(g.stats["a"].skipped_open, 3)
 
 
-class GeminiShape(unittest.TestCase):
-    def test_request_and_reply_translation(self):
-        sent = {}
-        def post(url, headers, body):
-            sent.update(body)
-            return {"candidates": [{"content": {"parts": [{"functionCall": {"name": "search_help", "args": {"query": "q"}}}]}}], "usageMetadata": {"totalTokenCount": 12}}
-        model = GeminiModel("m", "k", post=post)
-        reply = model.next([{"role": "system", "content": "S"}, {"role": "user", "content": "hi"}],
-                           [{"name": "search_help", "description": "d", "params": ["query"], "types": {"query": "string"}}])
-        self.assertEqual((reply.tool_calls[0].name, reply.tokens), ("search_help", 12))
-        self.assertEqual(sent["systemInstruction"]["parts"][0]["text"], "S")
+class FakeChat:
+    """Stands in for a LangChain chat model: records what it was sent, answers with a fixed AIMessage."""
 
-    def test_history_keeps_assistant_text(self):
-        _, contents = to_gemini([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}, {"role": "user", "content": "c"}])
-        self.assertEqual(contents[1], {"role": "model", "parts": [{"text": "b"}]})
+    def __init__(self, reply):
+        self.reply, self.sent, self.tools = reply, None, None
+
+    def bind_tools(self, tools):
+        self.tools = tools
+        return self
+
+    def invoke(self, messages):
+        self.sent = messages
+        return self.reply
+
+
+class LangChainShape(unittest.TestCase):
+    def test_request_and_reply_translation(self):
+        from langchain_core.messages import AIMessage
+        chat = FakeChat(AIMessage(content="", tool_calls=[{"name": "search_help", "args": {"query": "q"}, "id": "t1"}],
+                                  usage_metadata={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}))
+        reply = LangChainModel(chat, "fake").next([{"role": "system", "content": "S"}, {"role": "user", "content": "hi"}],
+                                                  [{"name": "search_help", "description": "d", "params": ["query"], "types": {"query": "string"}}])
+        self.assertEqual((reply.tool_calls[0].name, reply.tool_calls[0].args, reply.tokens), ("search_help", {"query": "q"}, 12))
+        self.assertEqual(chat.sent[0].content, "S")
+        self.assertEqual(chat.tools[0]["function"]["parameters"]["required"], ["query"])
+
+    def test_tool_round_trip_keeps_ids_and_names(self):
+        msgs = to_langchain([{"role": "user", "content": "a"}, {"role": "assistant", "tool_calls": [ToolCall("c9", "get_order", {"order_id": "O1"})]},
+                             {"role": "tool", "tool_call_id": "c9", "content": "{}"}, {"role": "assistant", "content": "b"}])
+        self.assertEqual(msgs[1].tool_calls[0]["id"], "c9")
+        self.assertEqual((msgs[2].tool_call_id, msgs[2].name), ("c9", "get_order"))
+        self.assertEqual(msgs[3].content, "b")
+
+    def test_text_parts_are_joined(self):
+        from langchain_core.messages import AIMessage
+        reply = LangChainModel(FakeChat(AIMessage(content=[{"type": "text", "text": "Hel"}, {"type": "text", "text": "lo"}])), "f").next(
+            [{"role": "user", "content": "x"}], [])
+        self.assertEqual(reply.text, "Hello")
+
+
+class RouterTests(unittest.TestCase):
+    def test_keyword_router(self):
+        r = KeywordRouter()
+        self.assertEqual(r.route("Refund order O2001")[0], "billing")
+        self.assertEqual(r.route("Where is order O1003?")[0], "orders")
+        self.assertEqual(r.route("Do you ship abroad?")[0], "policy")
+        self.assertEqual(r.route("Can I return a clearance item?")[0], "policy")
+
+    def test_llm_router_uses_a_valid_choice_and_ignores_an_invalid_one(self):
+        good = LLMRouter(type("M", (), {"next": lambda self, m, t: Reply(tool_calls=[ToolCall("r", "route", {"agent": "policy", "reason": "x"})], tokens=5)})())
+        self.assertEqual(good.route("Refund order O2001")[:1], ("policy",))
+        bad = LLMRouter(type("M", (), {"next": lambda self, m, t: Reply(tool_calls=[ToolCall("r", "route", {"agent": "root"})], tokens=5)})())
+        self.assertEqual(bad.route("Refund order O2001")[0], "billing")
 
 
 if __name__ == "__main__":

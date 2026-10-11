@@ -1,8 +1,9 @@
 """Tracing: one span per model call and per tool call, with duration and tokens.
 
 A trace answers "what did the agent do, in what order, and how long did each
-step take?" It is plain data (a list of dicts), so it can be printed, saved as
-JSON, or sent to CloudWatch later without changing the agent.
+step take?" It is plain data (a list of dicts) for the page's inspector, and each
+span is also emitted as an OpenTelemetry span, so the same steps show up in Grafana
+when OTLP export is on (see telemetry.py).
 """
 from __future__ import annotations
 
@@ -10,6 +11,10 @@ import json
 import time
 from contextlib import contextmanager
 from typing import Callable, Iterator
+
+from opentelemetry import trace
+
+otel_tracer = trace.get_tracer("brightwood-support-agent")
 
 
 class Tracer:
@@ -22,15 +27,19 @@ class Tracer:
         """Time a block. The yielded dict lets the block add attributes (tokens, status)."""
         record_attrs: dict = dict(attrs)
         start = self._clock()
-        try:
-            yield record_attrs
-        except Exception as error:  # noqa: BLE001 - record it, then let it propagate
-            record_attrs["error"] = repr(error)
-            raise
-        finally:
-            self.spans.append(
-                {"name": name, "attrs": record_attrs, "duration_s": round(self._clock() - start, 6)}
-            )
+        with otel_tracer.start_as_current_span(f"agent.{name}") as otel_span:
+            try:
+                yield record_attrs
+            except Exception as error:  # noqa: BLE001 - record it, then let it propagate
+                record_attrs["error"] = repr(error)
+                raise
+            finally:
+                self.spans.append(
+                    {"name": name, "attrs": record_attrs, "duration_s": round(self._clock() - start, 6)}
+                )
+                for key, value in record_attrs.items():
+                    if isinstance(value, (str, bool, int, float)):
+                        otel_span.set_attribute(f"agent.{key}", value)
 
     def summary(self, price_per_1k_tokens: float | None = None) -> dict:
         """Totals for a run. Cost is only reported if a price is supplied, never guessed."""

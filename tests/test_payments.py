@@ -3,9 +3,12 @@ import hmac
 import json
 import time
 import unittest
-from urllib.parse import parse_qs
 
-from brightwood_support.payments import PaymentError, SimulatedPayments, StripePayments, verify_webhook
+from brightwood_support.payments import (
+    PaymentError,
+    StripePayments,
+    verify_webhook,
+)
 from brightwood_support.service import Service
 from brightwood_support.shop import Shop
 
@@ -82,16 +85,16 @@ class Webhooks(unittest.TestCase):
             verify_webhook(self.payload + b" ", sign(self.payload, "whsec_x", now), "whsec_x")
 
     def test_service_updates_the_refund_status(self):
-        svc = Service(env={"STRIPE_SECRET_KEY": "sk_test_abc", "STRIPE_WEBHOOK_SECRET": "whsec_x"})
+        svc = Service(env={"STRIPE_SECRET_KEY": "sk_test_abc", "STRIPE_WEBHOOK_SECRET": "whsec_x", "DEMO_STAFF_LOGIN": "true"})
         svc.payments._post = FakeStripe()
         sid = svc.create_session()
         svc.chat(sid, "C1", "Refund order O1001")  # $32, within the assistant's limit
         self.assertEqual(svc.state(sid)["refunds"][0]["status"], "pending")
-        self.assertEqual(svc.handle_webhook(self.payload, sign(self.payload, "whsec_x", int(time.time()))), 1)
+        self.assertEqual(svc.handle_webhook(self.payload, sign(self.payload, "whsec_x", int(time.time())))["updated"], 1)
         self.assertEqual(svc.state(sid)["refunds"][0]["status"], "succeeded")
 
     def test_approval_keeps_waiting_if_stripe_fails(self):
-        svc = Service(env={"STRIPE_SECRET_KEY": "sk_test_abc"})
+        svc = Service(env={"STRIPE_SECRET_KEY": "sk_test_abc", "DEMO_STAFF_LOGIN": "true"})
         svc.payments._post = FakeStripe(fail_refund=True)
         sid = svc.create_session()
         svc.chat(sid, "C2", "Refund order O2001")
@@ -100,6 +103,10 @@ class Webhooks(unittest.TestCase):
         st = svc.state(sid)
         self.assertEqual((st["pending"], st["refunds"]), (1, []))
         self.assertIn("refund_failed", [a["action"] for a in st["audit"]])
+        # The workflow is still resumable, and a later decision is the one that runs.
+        out = svc.decide(sid, svc.staff_login("support_manager"), 1, False)
+        self.assertEqual(out["status"], "rejected")
+        self.assertEqual(svc.state(sid)["refunds"], [])
 
 
 if __name__ == "__main__":
