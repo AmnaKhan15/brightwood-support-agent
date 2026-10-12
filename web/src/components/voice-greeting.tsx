@@ -2,14 +2,15 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import greeting from "@/lib/greeting.json";
 import { readStored, writeStored } from "@/lib/storage";
 import { speak, voicesReady } from "@/lib/voice";
 import { useApp } from "./providers";
 import { cx } from "./ui";
 
-const GREETING =
-  "Hi, welcome to Brightwood! I'm your support assistant. I can track your orders, handle returns and refunds, " +
-  "and answer questions about our policies. Just tap Ask support, and type or talk to me any time.";
+// The words are recorded once with a natural Gemini voice (scripts/make_greeting_audio.py) and
+// shipped as a static file. The browser's own voice is only a fallback if that file can't play.
+const GREETING = greeting.text;
 
 // Character offset where each word starts, so the word being spoken can be highlighted.
 const WORDS = GREETING.split(" ").reduce<{ word: string; at: number }[]>((list, word) => {
@@ -17,6 +18,7 @@ const WORDS = GREETING.split(" ").reduce<{ word: string; at: number }[]>((list, 
   list.push({ word, at: prev ? prev.at + prev.word.length + 1 : 0 });
   return list;
 }, []);
+const wordAt = (charIndex: number) => WORDS.findLastIndex((w) => w.at <= charIndex);
 
 type Phase = "hidden" | "waiting" | "speaking" | "done";
 
@@ -28,29 +30,61 @@ export function VoiceGreeting() {
   const [phase, setPhase] = useState<Phase>("hidden");
   const [spoken, setSpoken] = useState(-1); // index of the word being said
   const [canSpeak, setCanSpeak] = useState(true);
-  const dismissed = useRef(false); // closed while the voice was still loading: stay quiet
+  const dismissed = useRef(false); // closed: never start or reappear
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const frame = useRef(0);
 
-  const say = useCallback(async () => {
+  const finish = useCallback(() => {
+    cancelAnimationFrame(frame.current);
+    if (dismissed.current) return; // closing stops the sound, which also "ends" it
+    setPhase("done");
+    setSpoken(WORDS.length);
+  }, []);
+
+  const withBrowserVoice = useCallback(async () => {
     await voicesReady();
     if (dismissed.current) return;
-    setSpoken(-1);
     const ok = speak(GREETING, {
       onStart: () => !dismissed.current && setPhase("speaking"),
-      onWord: (at) => setSpoken(WORDS.findLastIndex((w) => w.at <= at)),
-      onEnd: () => {
-        // Closing the card cancels the speech, which also ends it: don't bring the card back.
-        if (dismissed.current) return;
-        setPhase("done");
-        setSpoken(WORDS.length);
-      },
+      onWord: (at) => setSpoken(wordAt(at)),
+      onEnd: finish,
     });
     if (!ok) {
       setCanSpeak(false);
-      setPhase("done");
-      setSpoken(WORDS.length);
+      finish();
     }
-  }, []);
+  }, [finish]);
+
+  const say = useCallback(async () => {
+    if (dismissed.current || (audio.current && !audio.current.paused)) return;
+    const a = (audio.current ??= new Audio(greeting.audio));
+    a.onended = finish;
+    a.currentTime = 0;
+    setSpoken(-1);
+    try {
+      await a.play(); // fails while the browser still blocks sound, or if the file is missing
+    } catch (e) {
+      if ((e as DOMException).name !== "NotAllowedError") void withBrowserVoice();
+      return; // blocked: keep waiting for a tap
+    }
+    if (dismissed.current) return a.pause();
+    setPhase("speaking");
+    // Follow the recording: highlight the word at the same share of the text as the share of time played.
+    const follow = () => {
+      if (a.duration) setSpoken(wordAt((a.currentTime / a.duration) * GREETING.length));
+      if (!a.paused) frame.current = requestAnimationFrame(follow);
+    };
+    follow();
+  }, [finish, withBrowserVoice]);
   const sayRef = useRef(say);
+
+  const stop = () => {
+    dismissed.current = true;
+    audio.current?.pause();
+    window.speechSynthesis?.cancel();
+    cancelAnimationFrame(frame.current);
+    setPhase("hidden");
+  };
 
   // Appear shortly after the page loads, once per browser tab.
   useEffect(() => {
@@ -61,30 +95,25 @@ export function VoiceGreeting() {
       setPhase("waiting");
       if (allowed) void sayRef.current();
     }, 1200);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      audio.current?.pause();
+    };
   }, []);
 
-  // Still waiting for permission to make sound: the first click or key press anywhere starts the greeting.
+  // Still waiting for permission to make sound: the first click, tap or key press anywhere starts the greeting.
+  // (Phones count a finished tap, not a touch-down, so listen for both.)
   useEffect(() => {
     if (phase !== "waiting") return;
     const start = () => void sayRef.current();
-    window.addEventListener("pointerdown", start, { once: true });
-    window.addEventListener("keydown", start, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-    };
+    const events = ["pointerdown", "click", "keydown"] as const;
+    events.forEach((e) => window.addEventListener(e, start));
+    return () => events.forEach((e) => window.removeEventListener(e, start));
   }, [phase]);
 
-  const close = () => {
-    dismissed.current = true;
-    window.speechSynthesis?.cancel();
-    setPhase("hidden");
-  };
+  const close = stop;
   const talk = () => {
-    dismissed.current = true;
-    window.speechSynthesis?.cancel();
-    setPhase("hidden");
+    stop();
     openChat();
   };
 
