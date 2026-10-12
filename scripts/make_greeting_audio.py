@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from brightwood_support.speech import RATE, pcm_to_wav, synthesize  # noqa: E402
+from brightwood_support.speech import RATE, clean_pcm, pcm_to_wav, synthesize  # noqa: E402
 
 GREETING = ROOT / "web" / "src" / "lib" / "greeting.json"
 
@@ -40,7 +40,7 @@ def main() -> None:
         raise SystemExit("Set GEMINI_API_KEY in .env first.")
 
     greeting = json.loads(GREETING.read_text(encoding="utf-8"))
-    pcm = synthesize(greeting["text"], key=key, model=args.model, voice=args.voice, timeout=120)
+    pcm = clean_pcm(synthesize(greeting["text"], key=key, model=args.model, voice=args.voice, timeout=120))
     out = ROOT / "web" / "public" / greeting["audio"].lstrip("/")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(pcm_to_wav(pcm))

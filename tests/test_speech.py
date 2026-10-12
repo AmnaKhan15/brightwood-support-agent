@@ -27,6 +27,34 @@ class SpokenTextTests(unittest.TestCase):
         self.assertEqual(speech.spoken_text("Done [refunds#limits]."), "Done.")
 
 
+def tone(seconds: float, level: int) -> list[int]:
+    """A plain sine wave standing in for speech (or for the model's noise burst)."""
+    import math
+    return [int(level * math.sin(2 * math.pi * 220 * i / speech.RATE)) for i in range(int(seconds * speech.RATE))]
+
+
+def pcm(samples: list[int]) -> bytes:
+    import array
+    return array.array("h", samples).tobytes()
+
+
+class CleanAudioTests(unittest.TestCase):
+    def test_a_loud_burst_after_the_last_word_is_cut(self):
+        speech_part = tone(1.0, 4000)
+        audio = pcm(speech_part + [0] * int(0.2 * speech.RATE) + tone(0.2, 30000))
+        cleaned = speech.clean_pcm(audio)
+        self.assertLess(len(cleaned), len(audio))
+        self.assertLessEqual(len(cleaned) // 2, len(speech_part) + int(0.06 * speech.RATE))
+
+    def test_a_normal_last_word_after_a_pause_is_kept(self):
+        audio = pcm(tone(1.0, 4000) + [0] * int(0.2 * speech.RATE) + tone(0.4, 4500))
+        self.assertEqual(len(speech.clean_pcm(audio)), len(audio))
+
+    def test_edges_fade_to_silence(self):
+        cleaned = speech.clean_pcm(pcm([20000] * speech.RATE))
+        self.assertEqual((cleaned[:2], cleaned[-2:]), (bytes(2), bytes(2)))
+
+
 class SpeakServiceTests(unittest.TestCase):
     def test_without_a_key_the_browser_voice_is_used(self):
         svc = Service(env=DEMO)

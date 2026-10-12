@@ -9,10 +9,12 @@ So answers are turned into audio here and played by the page; the browser voice 
 
 from __future__ import annotations
 
+import array
 import base64
 import hashlib
 import io
 import json
+import math
 import re
 import threading
 import urllib.request
@@ -22,6 +24,7 @@ from collections import OrderedDict
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 RATE = 24_000  # Gemini returns 16-bit mono PCM at 24 kHz
 MAX_CHARS = 1500
+QUIET = 300  # loudness below this counts as silence (16-bit samples)
 
 _CITATION = re.compile(r"\[[a-z_]+#[a-z0-9-]+\]")
 _BULLET = re.compile(r"^\s*(?:[*-]|\d+\.)\s+", re.M)
@@ -39,6 +42,43 @@ def spoken_text(text: str) -> str:
     text = _CODE.sub(lambda m: " ".join(m.group(1)) + " " + " ".join(m.group(2)), text)
     text = re.sub(r"\s+([.,!?:;])", r"\1", re.sub(r"\s+", " ", text))
     return text.strip()[:MAX_CHARS]
+
+
+def clean_pcm(pcm: bytes) -> bytes:
+    """Remove the speech model's stray noise and clicks.
+
+    Gemini's speech audio sometimes ends with a short, very loud burst after the last word (heard as a radio-like
+    glitch), and can start or stop mid-wave (a click). So: if the clip ends with under a second of audio, after a
+    pause, that is far louder than the speech itself, cut it at the pause. Then fade the edges in and out.
+    """
+    samples = array.array("h", pcm[: len(pcm) // 2 * 2])
+    frame = RATE // 50  # 20 ms
+    rms = [math.sqrt(sum(x * x for x in samples[i:i + frame]) / max(1, len(samples[i:i + frame])))
+           for i in range(0, len(samples), frame)]
+    voiced = sorted(r for r in rms if r > QUIET)
+    if voiced:
+        typical = voiced[len(voiced) // 2]
+        # Walk back from the end to the last pause (100 ms of quiet) within the final second.
+        end, quiet_run = len(rms), 0
+        for i in range(len(rms) - 1, max(-1, len(rms) - 1 - 50), -1):
+            if rms[i] < QUIET:
+                quiet_run += 1
+                if quiet_run >= 5:
+                    tail = rms[i + quiet_run:]
+                    if tail and max(tail) > 2.5 * typical:
+                        start = i
+                        while start > 0 and rms[start - 1] < QUIET:
+                            start -= 1
+                        end = start + 2  # keep 40 ms of the pause
+                    break
+            else:
+                quiet_run = 0
+        samples = samples[: end * frame]
+    fade = min(len(samples) // 2, RATE // 100)  # 10 ms
+    for i in range(fade):
+        samples[i] = int(samples[i] * i / fade)
+        samples[-1 - i] = int(samples[-1 - i] * i / fade)
+    return samples.tobytes()
 
 
 def pcm_to_wav(pcm: bytes) -> bytes:
@@ -100,7 +140,7 @@ class Speech:
         if hit is not None:
             return hit
         try:
-            wav = pcm_to_wav(synthesize(text, key=self.key, model=self.model, voice=self.voice))
+            wav = pcm_to_wav(clean_pcm(synthesize(text, key=self.key, model=self.model, voice=self.voice)))
         except Exception as e:  # noqa: BLE001 - any failure means "use the browser voice"
             raise SpeechUnavailable(str(e)) from e
         with self._lock:
