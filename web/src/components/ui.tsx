@@ -81,8 +81,8 @@ export function Table({ head, rows, empty = "Nothing yet." }: { head: string[]; 
 
 export function Stat({ value, label }: { value: ReactNode; label: string }) {
   return (
-    <div className="rounded-md bg-surface-2 px-4 py-3">
-      <div className="font-display text-xl font-bold">{value}</div>
+    <div className="rounded-2xl bg-bg px-4 py-3">
+      <div className="text-2xl font-extrabold tracking-[-0.04em]">{value}</div>
       <div className="text-xs text-muted">{label}</div>
     </div>
   );
