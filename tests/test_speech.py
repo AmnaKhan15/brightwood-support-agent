@@ -50,9 +50,10 @@ class SpeakServiceTests(unittest.TestCase):
         svc = Service(env=WITH_KEY, per_minute=1)
         sid = svc.create_session()
         with mock.patch.object(speech, "synthesize", return_value=PCM):
-            svc.speak(sid, "One")
+            for n in range(4):  # an answer is voiced in a few short pieces
+                svc.speak(sid, f"Piece {n}")
             with self.assertRaises(RateLimited):
-                svc.speak(sid, "Two")
+                svc.speak(sid, "One too many")
 
     def test_a_model_failure_means_fall_back(self):
         svc = Service(env=WITH_KEY)

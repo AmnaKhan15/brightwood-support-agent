@@ -78,6 +78,8 @@ export function speak(text: string, events: SpeakEvents = {}) {
 let player: HTMLAudioElement | null = null;
 let turn = 0;
 
+export type VoiceState = "preparing" | "speaking" | "idle";
+
 /** Stops whatever is being said, natural voice or browser voice. */
 export function stopSpeaking() {
   turn++;
@@ -86,28 +88,73 @@ export function stopSpeaking() {
   if (typeof window !== "undefined") window.speechSynthesis?.cancel();
 }
 
-/** Reads an answer in the natural Gemini voice from /api/tts; falls back to the browser's voice if that is unavailable. */
-export async function speakAnswer(text: string) {
-  stopSpeaking();
-  const mine = turn;
-  // The current sandbox, read now: it may have been renewed while the answer was being written.
-  const session = readStored("bw.sid", "session");
+/** Pieces to voice separately: the first sentence alone so it can start playing quickly,
+ *  then the rest in pieces of about two sentences. At most six requests per answer. */
+export function speechChunks(clean: string, size = 180, max = 6) {
+  const sentences = clean.match(/[^.!?]+[.!?]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [clean];
+  const chunks = [sentences[0]];
+  for (const s of sentences.slice(1)) {
+    const last = chunks.length - 1;
+    if (last > 0 && (chunks[last] + " " + s).length <= size) chunks[last] += " " + s;
+    else chunks.push(s);
+  }
+  while (chunks.length > max) chunks.splice(-2, 2, chunks.slice(-2).join(" "));
+  return chunks;
+}
+
+async function fetchVoice(text: string, session: string | null): Promise<string | null> {
   try {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(session ? { "X-Session": session } : {}) },
       body: JSON.stringify({ text }),
     });
-    if (!res.ok) throw new Error(`tts ${res.status}`);
-    const url = URL.createObjectURL(await res.blob());
-    if (mine !== turn) return URL.revokeObjectURL(url); // something newer started meanwhile
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    player = audio;
-    await audio.play();
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
   } catch {
-    if (mine === turn) speak(text);
+    return null;
   }
+}
+
+function play(url: string) {
+  return new Promise<void>((resolve) => {
+    const audio = new Audio(url);
+    player = audio;
+    audio.onended = audio.onerror = audio.onpause = () => resolve();
+    audio.play().catch(() => resolve());
+  });
+}
+
+/** Reads an answer in the natural Gemini voice. All pieces are requested at once and played in order,
+ *  so the first sentence starts in a few seconds while the rest is still being made.
+ *  If the natural voice is unavailable, whatever is left is read by the browser's voice. */
+export async function speakAnswer(text: string, onState?: (s: VoiceState) => void) {
+  stopSpeaking();
+  const mine = turn;
+  const done = () => mine === turn && onState?.("idle");
+  // The current sandbox, read now: it may have been renewed while the answer was being written.
+  const session = readStored("bw.sid", "session");
+  const chunks = speechChunks(spokenText(text));
+  onState?.("preparing");
+  const pending = chunks.map((c) => fetchVoice(c, session));
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      const url = await pending[i];
+      if (mine !== turn) return;
+      if (!url) {
+        onState?.("speaking");
+        if (!speak(chunks.slice(i).join(" "), { onEnd: done })) done();
+        return;
+      }
+      onState?.("speaking");
+      await play(url);
+      URL.revokeObjectURL(url);
+      if (mine !== turn) return;
+    }
+  } finally {
+    // Free any audio that was fetched but never played (stopped part-way).
+    if (mine !== turn) void Promise.all(pending).then((urls) => urls.forEach((u) => u && URL.revokeObjectURL(u)));
+  }
+  done();
 }
 
 /** Voices load asynchronously in some browsers; wait briefly so the first sentence uses a good one. */

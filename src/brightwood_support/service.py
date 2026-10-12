@@ -239,7 +239,8 @@ class Service:
         if not words:
             raise ValueError("nothing to say")
         if self.speech.cached(words) is None:
-            if not self.limiter.allow(f"tts:{sid}", self.per_minute):
+            # An answer is voiced in up to six short pieces, so allow several per message.
+            if not self.limiter.allow(f"tts:{sid}", self.per_minute * 4):
                 raise RateLimited("too many voice requests; wait a few seconds")
             if not self.budget.take():
                 raise SpeechUnavailable("daily AI call cap reached")

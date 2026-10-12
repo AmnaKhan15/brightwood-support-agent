@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CHIPS } from "@/lib/products";
 import { useStored } from "@/lib/storage";
 import type { ChatResponse, Message } from "@/lib/types";
-import { speakAnswer, stopSpeaking, useVoice } from "@/lib/voice";
+import { speakAnswer, stopSpeaking, useVoice, type VoiceState } from "@/lib/voice";
 import { useApp, useAppState } from "./providers";
 import { AGENTS } from "./three/agents";
 import { Pill, StatePill, cx } from "./ui";
@@ -76,6 +76,7 @@ export function Chat() {
   const qc = useQueryClient();
   const { api, ready, sid, customer, chatOpen, setChatOpen, registerChat, inspect, setInspect, setDrawerOpen } = useApp();
   const { data } = useAppState();
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   // Bubbles not yet saved on the server (the message being sent, a voice read-back). They belong to one
@@ -112,7 +113,7 @@ export function Chat() {
         setInspect(r.inspect);
         await qc.invalidateQueries({ queryKey: ["state"] });
         setExtra([]);
-        if (spoken || voiceOut) void speakAnswer(r.reply);
+        if (spoken || voiceOut) void speakAnswer(r.reply, setVoiceState);
       } catch (e) {
         await qc.invalidateQueries({ queryKey: ["state"] });
         setExtra([{ role: "customer", text }, { role: "system", text: (e as Error).message }]);
@@ -134,7 +135,7 @@ export function Chat() {
         if (NO.test(text)) {
           const m = "Okay, I won't do that.";
           setExtra([{ role: "customer", text }, { role: "assistant", text: m }]);
-          void speakAnswer(m);
+          void speakAnswer(m, setVoiceState);
           setInput("");
           return;
         }
@@ -143,7 +144,7 @@ export function Chat() {
         confirm.current = text;
         const m = `Just to check: you said "${text}". Say yes to go ahead, or no to stop.`;
         setExtra([{ role: "customer", text }, { role: "assistant", text: m }]);
-        void speakAnswer(m);
+        void speakAnswer(m, setVoiceState);
         setInput("");
         return;
       }
@@ -210,14 +211,14 @@ export function Chat() {
             </b>
           </div>
           <button type="button" aria-label="Close chat" className="grid size-9 shrink-0 place-items-center rounded-full border border-line transition hover:bg-ink hover:text-bg"
-            onClick={() => { stopSpeaking(); setChatOpen(false); }}>
+            onClick={() => { stopSpeaking(); setVoiceState("idle"); setChatOpen(false); }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
         <div className="flex items-center gap-2 text-xs font-semibold">
           <button type="button" aria-pressed={voiceOut} title="Read answers aloud"
             className={cx("rounded-full border px-3 py-1.5 transition", voiceOut ? "border-ink bg-ink text-bg" : "border-line text-muted hover:border-ink hover:text-ink")}
-            onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) stopSpeaking(); }}>
+            onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) { stopSpeaking(); setVoiceState("idle"); } }}>
             Voice {voiceOut ? "on" : "off"}
           </button>
           <button type="button" className="rounded-full border border-line px-3 py-1.5 text-muted transition hover:border-ink hover:text-ink" onClick={() => setDrawerOpen(true)}>
@@ -285,6 +286,13 @@ export function Chat() {
           </button>
         ))}
       </div>
+      {voiceState !== "idle" && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs font-semibold text-muted" role="status">
+          <span className={cx("sound-bars", voiceState === "speaking" && "is-speaking")} aria-hidden><i /><i /><i /><i /></span>
+          {voiceState === "preparing" ? "Preparing voice…" : "Speaking"}
+          <button type="button" className="link-underline ml-auto text-ink" onClick={() => { stopSpeaking(); setVoiceState("idle"); }}>Stop</button>
+        </div>
+      )}
       {voice.note && <div className="px-5 pb-2 text-xs text-muted">{voice.note}</div>}
       <form onSubmit={submit} className="px-4 pb-4">
         <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface p-1.5 pl-2 transition focus-within:border-ink">
