@@ -430,6 +430,63 @@
     "reference": "A friendly greeting that says what the assistant can help with; no ticket."
   },
   {
+    "id": "smalltalk-who-are-you",
+    "customer": "C1",
+    "turns": [
+      "Hi there! Who are you?"
+    ],
+    "expect": {
+      "tools_exclude": [
+        "escalate_to_human",
+        "list_orders",
+        "get_order"
+      ],
+      "reply_any": [
+        "help",
+        "order"
+      ]
+    },
+    "reference": "A friendly greeting that says what the assistant can help with; no ticket."
+  },
+  {
+    "id": "smalltalk-whats-up",
+    "customer": "C1",
+    "turns": [
+      "hey, what's up?"
+    ],
+    "expect": {
+      "tools_exclude": [
+        "escalate_to_human",
+        "list_orders",
+        "get_order"
+      ],
+      "reply_any": [
+        "help",
+        "order"
+      ]
+    },
+    "reference": "A friendly greeting that says what the assistant can help with; no ticket."
+  },
+  {
+    "id": "smalltalk-how-are-you",
+    "customer": "C1",
+    "turns": [
+      "hello how are you"
+    ],
+    "expect": {
+      "tools_exclude": [
+        "escalate_to_human",
+        "list_orders",
+        "get_order"
+      ],
+      "reply_any": [
+        "help",
+        "order"
+      ]
+    },
+    "reference": "A friendly greeting that says what the assistant can help with; no ticket."
+  },
+  {
     "id": "smalltalk-thanks",
     "customer": "C2",
     "turns": [

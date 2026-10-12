@@ -21,8 +21,13 @@ ORDER_ID = re.compile(r"\bO\d{4}\b", re.I)
 AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d{1,2})?)")
 MIN_MATCH = 0.18
 # Greetings, thanks and one-word replies: answered politely, never searched or turned into a ticket.
-SMALL_TALK = re.compile(r"^\s*(hi|hello|hey|hiya|yo|good (morning|afternoon|evening)|thanks|thank you|thx|cheers|ok|okay|"
-                        r"done|cool|great|nice|got it|bye|goodbye|see you)\b[\s!.,?]*$", re.I)
+# Small talk: a greeting, a pleasantry ("how are you"), or both, or a one-word acknowledgement.
+# The whole message must be small talk, so "hi, where is my order?" still goes to the order rules.
+_GREET = r"(?:hi|hello|hey|hiya|yo|good (?:morning|afternoon|evening))(?: there| team| brightwood)?"
+_PLEASANTRY = (r"(?:how are you(?: doing)?(?: today)?|how(?:'| i)?s it going|how are things|what'?s up|"
+               r"nice to meet you|who are you|what can you do(?: for me)?|what do you do)")
+_ACK = r"(?:thanks|thank you|thx|cheers|ok|okay|done|cool|great|nice|got it|bye|goodbye|see you)"
+SMALL_TALK = re.compile(rf"^\s*(?:{_GREET}(?:[\s,!.]+{_PLEASANTRY})?|{_PLEASANTRY}|{_ACK})\b[\s!.,?]*$", re.I)
 HELP_MENU = ("I can track an order, cancel one that hasn't shipped, send a return label, sort out a refund, "
              "or answer questions about our policies. What would you like to do?")
 
@@ -126,7 +131,12 @@ class PlaybookModel:
                 return say("You're welcome! Is there anything else I can help with?")
             if re.search(r"bye|see you", t):
                 return say("Goodbye, and thanks for shopping with Brightwood.")
-            if re.search(r"^\s*(hi|hello|hey|hiya|yo|good )", t):
+            hello = "Hi! " if re.search(r"^\s*(hi|hello|hey|hiya|yo|good )", t) else ""
+            if re.search(r"how are|how.?s it going|how is it going|what.?s up", t):
+                return say(f"{hello}I'm doing well, thanks for asking. {HELP_MENU}")
+            if re.search(r"who are you|what can you do|what do you do|nice to meet", t):
+                return say(f"{hello}I'm Brightwood's support assistant. {HELP_MENU}")
+            if hello:
                 return say(f"Hi! {HELP_MENU}")
             return say("Great. Is there anything else I can help with?")
 
