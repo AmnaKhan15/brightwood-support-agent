@@ -22,10 +22,10 @@ export function Header() {
   const pending = data?.pending ?? 0;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line/60 bg-bg/70 backdrop-blur-xl backdrop-saturate-150">
+    <header className="sticky top-0 z-30 bg-bg/75 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-10">
-        <Link href="/" className="font-display text-lg font-bold tracking-[0.18em] text-ink sm:text-xl sm:tracking-[0.28em]" aria-label="Brightwood, home">
-          BRIGHTWOOD
+        <Link href="/" className="text-xl font-extrabold tracking-[-0.04em] text-ink sm:text-2xl" aria-label="Brightwood, home">
+          Brightwood<span className="text-accent">.</span>
         </Link>
 
         {!staffMode && (
@@ -37,7 +37,7 @@ export function Header() {
                   key={href}
                   href={href}
                   aria-current={active ? "page" : undefined}
-                  className={cx("whitespace-nowrap px-3 py-1.5 text-sm underline-offset-[10px] decoration-1", active ? "text-ink underline" : "text-muted hover:text-ink")}
+                  className={cx("link-underline mx-3 whitespace-nowrap py-1.5 text-sm font-medium", active ? "text-ink" : "text-muted hover:text-ink")}
                 >
                   {label}
                 </Link>
@@ -46,7 +46,7 @@ export function Header() {
           </nav>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
           {staffMode ? (
             staff ? <Pill tone="ok">signed in as {staff.role.replace("_", " ")}</Pill> : <Pill>not signed in</Pill>
           ) : (
@@ -69,7 +69,7 @@ export function Header() {
               type="button"
               aria-pressed={!staffMode}
               onClick={() => staffMode && router.push("/")}
-              className={cx("rounded-full px-3.5 py-1.5 text-sm font-semibold transition", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("rounded-full px-2.5 py-1.5 text-sm font-semibold transition sm:px-3.5", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Customer
             </button>
@@ -77,17 +77,17 @@ export function Header() {
               type="button"
               aria-pressed={staffMode}
               onClick={() => !staffMode && router.push("/staff")}
-              className={cx("flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm font-semibold transition sm:px-3.5", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Staff
               {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
             </button>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => resetSandbox()} disabled={!ready} title="Start over: fresh demo orders, an empty chat and no approvals" aria-label="Reset demo">
+          <Button size="sm" variant="ghost" className="px-2 sm:px-3" onClick={() => resetSandbox()} disabled={!ready} title="Start over: fresh demo orders, an empty chat and no approvals" aria-label="Reset demo">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="lg:hidden"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
             <span className="hidden lg:inline">Reset demo</span>
           </Button>
-          <Button size="sm" variant="ghost" onClick={toggleTheme} aria-label="Switch light and dark theme">
+          <Button size="sm" variant="ghost" className="px-2 sm:px-3" onClick={toggleTheme} aria-label="Switch light and dark theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
               <circle cx="12" cy="12" r="4" />
               <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />

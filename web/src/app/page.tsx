@@ -17,10 +17,10 @@ const MARQUEE = ["Linen", "Oak", "Wool", "Stoneware", "Free returns within 30 da
 
 // The real agent graph (src/brightwood_support/agent.py): who does what, and which tools each one may call.
 const TEAM = [
-  { name: "Supervisor", color: "#f0fdfa", job: "Reads every message first and hands it to the right specialist. If the model is down, keyword rules take over.", tools: ["route"] },
-  { name: "Policy agent", color: "#5eead4", job: "Answers questions about the store's rules from the help articles, and shows the source.", tools: ["search_help", "escalate_to_human"] },
-  { name: "Orders agent", color: "#fbbf24", job: "Tracking, cancellations and return labels, for the signed-in customer's own orders only.", tools: ["get_order", "cancel_order", "send_return_label"] },
-  { name: "Billing agent", color: "#c4b5fd", job: "Refunds up to $50 on its own. Anything larger pauses and waits for a manager's approval.", tools: ["get_order", "request_refund"] },
+  { name: "Supervisor", color: "#faf7f2", job: "Reads every message first and hands it to the right specialist. If the model is down, keyword rules take over.", tools: ["route"] },
+  { name: "Policy agent", color: "#5f9277", job: "Answers questions about the store's rules from the help articles, and shows the source.", tools: ["search_help", "escalate_to_human"] },
+  { name: "Orders agent", color: "#d9a441", job: "Tracking, cancellations and return labels, for the signed-in customer's own orders only.", tools: ["get_order", "cancel_order", "send_return_label"] },
+  { name: "Billing agent", color: "#de5d35", job: "Refunds up to $50 on its own. Anything larger pauses and waits for a manager's approval.", tools: ["get_order", "request_refund"] },
 ];
 
 const STEPS = [
@@ -112,11 +112,11 @@ export default function Shop() {
       </div>
 
       <section className="hero-stage relative isolate -mx-4 overflow-hidden px-5 py-16 text-white sm:-mx-6 sm:px-8 lg:mx-0 lg:rounded-[28px] lg:px-14">
-        <div aria-hidden className="aurora pointer-events-none absolute -right-40 -top-32 -z-10 size-[520px] rounded-full bg-teal-500/15 blur-[120px]" />
+        <div aria-hidden className="aurora pointer-events-none absolute -right-40 -top-32 -z-10 size-[520px] rounded-full bg-accent/20 blur-[120px]" />
         <InView className="flex flex-wrap items-end justify-between gap-6">
           <div className="flex flex-col gap-3">
-            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.26em] text-white/45">The team behind the chat</span>
-            <h2 className="max-w-2xl text-4xl leading-tight md:text-5xl">Four agents, one <span className="text-gradient">conversation.</span></h2>
+            <span className="text-xs font-bold uppercase tracking-[0.3em] text-accent">• The team behind the chat</span>
+            <h2 className="max-w-2xl text-4xl leading-tight md:text-6xl">Four agents, one <span className="font-accent font-normal italic text-accent">conversation.</span></h2>
           </div>
           <p className="max-w-md text-sm leading-relaxed text-white/60">
             Built with LangGraph. Each specialist can only use its own tools, and the store&apos;s rules are checked in code underneath the model,

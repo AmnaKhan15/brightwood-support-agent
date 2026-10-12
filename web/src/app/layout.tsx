@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, Inter_Tight, JetBrains_Mono, Newsreader } from "next/font/google";
+import { Instrument_Serif, JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { Chat } from "@/components/chat";
 import { Header } from "@/components/header";
 import { Inspector } from "@/components/inspector";
@@ -9,9 +9,8 @@ import { Toast } from "@/components/toast";
 import "lenis/dist/lenis.css";
 import "./globals.css";
 
-const serif = Newsreader({ variable: "--font-serif", subsets: ["latin"], weight: ["400", "500"], style: ["normal", "italic"] });
-const heading = Inter_Tight({ variable: "--font-heading", subsets: ["latin"], weight: ["500", "600", "700"] });
-const body = Instrument_Sans({ variable: "--font-body", subsets: ["latin"] });
+const serif = Instrument_Serif({ variable: "--font-serif", subsets: ["latin"], weight: "400", style: ["normal", "italic"] });
+const body = Plus_Jakarta_Sans({ variable: "--font-body", subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const mono = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"] });
 
 export const metadata: Metadata = {
@@ -23,7 +22,7 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${serif.variable} ${heading.variable} ${body.variable} ${mono.variable} antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${serif.variable} ${body.variable} ${mono.variable} antialiased`} suppressHydrationWarning>
       <body className="min-h-dvh font-sans">
         <Providers>
           <SmoothScroll />

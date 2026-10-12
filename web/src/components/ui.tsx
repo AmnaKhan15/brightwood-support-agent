@@ -42,7 +42,7 @@ export function Button({
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "solid" | "outline" | "ghost" | "danger"; size?: "sm" | "md" }) {
   const v = {
-    solid: "bg-brand text-brand-ink hover:opacity-90 border-transparent",
+    solid: "bg-brand text-brand-ink hover:bg-accent hover:text-white border-transparent",
     outline: "border-line bg-surface hover:bg-surface-2",
     ghost: "border-transparent hover:bg-surface-2",
     danger: "border-transparent bg-bad text-white hover:opacity-90",
@@ -51,7 +51,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={cx("inline-flex items-center justify-center gap-2 rounded-md border font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", v, s, className)}
+      className={cx("inline-flex items-center justify-center gap-2 rounded-full border font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", v, s, className)}
       {...rest}
     >
       {children}

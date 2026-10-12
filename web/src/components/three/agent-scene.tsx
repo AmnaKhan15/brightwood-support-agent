@@ -39,7 +39,7 @@ function Scene({ active, pulse, pointer, labels, onPick, calm }: SceneProps & Ex
     () =>
       AGENTS.map((a) => {
         const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
-        const material = new THREE.LineBasicMaterial({ color: a.color, transparent: true, opacity: 0.15 });
+        const material = new THREE.LineBasicMaterial({ color: a.color, transparent: true, opacity: 0.3 });
         return new THREE.Line(geometry, material);
       }),
     [],
@@ -101,7 +101,7 @@ function Scene({ active, pulse, pointer, labels, onPick, calm }: SceneProps & Ex
       attr.setXYZ(1, pos.x, pos.y, pos.z);
       attr.needsUpdate = true;
       const travelling = act?.agent === a.id && since < PACKET_TIME;
-      (beam.material as THREE.LineBasicMaterial).opacity = 0.12 + (travelling ? 0.7 : lit * 0.6);
+      (beam.material as THREE.LineBasicMaterial).opacity = 0.28 + (travelling ? 0.7 : lit * 0.6);
 
       const packet = packets.current[i];
       if (packet) {
@@ -117,11 +117,11 @@ function Scene({ active, pulse, pointer, labels, onPick, calm }: SceneProps & Ex
         {/* The supervisor: a liquid, glossy core that reads every message first. */}
         <mesh ref={core}>
           <icosahedronGeometry args={[1, 24]} />
-          <MeshDistortMaterial color="#0f766e" emissive="#064e3b" emissiveIntensity={0.6} roughness={0.12} metalness={0.75} distort={calm ? 0.15 : 0.32} speed={calm ? 0.6 : 1.8} />
+          <MeshDistortMaterial color="#24201d" emissive="#5a2412" emissiveIntensity={0.35} roughness={0.14} metalness={0.85} distort={calm ? 0.15 : 0.32} speed={calm ? 0.6 : 1.8} />
         </mesh>
         <mesh ref={shell} scale={1.42}>
           <icosahedronGeometry args={[1, 1]} />
-          <meshBasicMaterial color="#5eead4" wireframe transparent opacity={0.16} />
+          <meshBasicMaterial color="#de5d35" wireframe transparent opacity={0.28} />
         </mesh>
       </Float>
 
@@ -129,8 +129,8 @@ function Scene({ active, pulse, pointer, labels, onPick, calm }: SceneProps & Ex
         <group key={a.id}>
           {/* The orbit path, tilted into the same plane the orb travels in. */}
           <mesh rotation={[Math.PI / 2 - a.tilt, 0, 0]}>
-            <torusGeometry args={[a.radius, 0.004, 6, 160]} />
-            <meshBasicMaterial color={a.color} transparent opacity={0.18} />
+            <torusGeometry args={[a.radius, 0.006, 6, 160]} />
+            <meshBasicMaterial color={a.color} transparent opacity={0.4} />
           </mesh>
           <primitive object={beams[i]} />
           <mesh ref={(m: THREE.Mesh | null) => { packets.current[i] = m; }} visible={false}>
@@ -145,7 +145,7 @@ function Scene({ active, pulse, pointer, labels, onPick, calm }: SceneProps & Ex
         </group>
       ))}
 
-      <Sparkles count={70} scale={[9, 6, 6]} size={2.2} speed={calm ? 0.05 : 0.3} opacity={0.6} color="#99f6e4" />
+      <Sparkles count={80} scale={[10, 6, 6]} size={2.6} speed={calm ? 0.05 : 0.3} opacity={0.7} color="#de5d35" />
     </group>
   );
 }
@@ -187,27 +187,27 @@ export default function AgentScene(props: SceneProps) {
   return (
     <div ref={wrap} className="relative size-full">
       <Canvas camera={{ position: [0, 0.4, 9.6], fov: 42 }} dpr={[1, 1.75]} frameloop={visible ? "always" : "never"} gl={{ antialias: true, alpha: true }}>
-        <ambientLight intensity={0.35} />
-        <pointLight position={[4, 4, 4]} intensity={40} color="#a7f3d0" />
-        <pointLight position={[-5, -2, -3]} intensity={25} color="#c4b5fd" />
+        <ambientLight intensity={0.6} />
+        <pointLight position={[4, 4, 4]} intensity={45} color="#ffe2cf" />
+        <pointLight position={[-5, -2, -3]} intensity={30} color="#de5d35" />
         {/* Reflections from a few soft panels, built locally: no HDR file to download. */}
         <Environment resolution={128}>
-          <Lightformer form="rect" intensity={2} position={[0, 4, -4]} scale={[8, 2, 1]} color="#ccfbf1" />
-          <Lightformer form="circle" intensity={1.5} position={[-4, 0, 2]} scale={2} color="#ddd6fe" />
-          <Lightformer form="ring" intensity={1} position={[4, -1, 3]} scale={2} color="#fef3c7" />
+          <Lightformer form="rect" intensity={2.5} position={[0, 4, -4]} scale={[8, 2, 1]} color="#faf7f2" />
+          <Lightformer form="circle" intensity={2} position={[-4, 0, 2]} scale={2} color="#de5d35" />
+          <Lightformer form="ring" intensity={1.5} position={[4, -1, 3]} scale={2} color="#f5efe6" />
         </Environment>
         <Scene {...props} pointer={pointer} labels={labels} calm={calm} />
       </Canvas>
       {AGENTS.map((a, i) => (
         <button key={a.id} type="button" ref={(el) => { labels.current[i] = el; }} onClick={() => props.onPick?.(a.id)}
-          className="absolute left-0 top-0 whitespace-nowrap rounded-full border border-white/15 bg-black/45 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-md transition-colors hover:bg-white/15"
+          className="absolute left-0 top-0 whitespace-nowrap rounded-full border border-line bg-surface/80 px-3 py-1 text-[11px] font-semibold text-ink shadow-sm backdrop-blur-md transition-colors hover:bg-surface"
           style={{ transform: "translate(-200%, -200%)" }}>
           <span className="mr-1.5 inline-block size-1.5 rounded-full align-middle" style={{ background: a.color }} />
           {a.label} agent
         </button>
       ))}
       <span ref={(el) => { labels.current[AGENTS.length] = el; }} aria-hidden style={{ transform: "translate(-200%, -200%)" }}
-        className="pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-white/15 bg-black/40 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85 backdrop-blur-md">
+        className="pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-line bg-surface/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink shadow-sm backdrop-blur-md">
         Supervisor
       </span>
     </div>
