@@ -14,7 +14,7 @@ import time
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from .auth import AuthError, Forbidden
@@ -22,6 +22,7 @@ from .config import env_flag
 from .payments import PaymentError
 from .service import NoSuchSession, RateLimited, Service
 from .shop import NotFound, PolicyError
+from .speech import SpeechUnavailable
 from .telemetry import request_id, setup_logging, setup_otel
 
 log = logging.getLogger("brightwood.api")
@@ -33,6 +34,10 @@ class ChatIn(BaseModel):
     customer: str = Field(max_length=10)
     message: str = Field(max_length=4000)
     voice: bool = False
+
+
+class SpeakIn(BaseModel):
+    text: str = Field(max_length=4000)
 
 
 class LoginIn(BaseModel):
@@ -129,6 +134,11 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
     async def _missing(_, e):
         return _error(404, "not_found", str(e))
 
+    @app.exception_handler(SpeechUnavailable)
+    async def _speech(request: Request, e: SpeechUnavailable):
+        log.warning("speech unavailable: %s", e)
+        return _error(503, "speech_unavailable", "Natural voice is unavailable right now; the browser voice is used instead.")
+
     @app.exception_handler(PaymentError)
     async def _payment(_, e):
         return _error(502, "payment", f"The payment provider had a problem: {e}")
@@ -178,6 +188,11 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
     def chat(body: ChatIn, x_session: str | None = Header(default=None), s: Service = Svc):
         return s.chat(x_session, body.customer, body.message, body.voice)
 
+    @app.post("/api/tts", responses={200: {"content": {"audio/wav": {}}}})
+    def tts(body: SpeakIn, x_session: str | None = Header(default=None), s: Service = Svc):
+        """Read an answer aloud in a natural voice. Returns a WAV file; 503 means use the browser's voice."""
+        return Response(s.speak(x_session, body.text), media_type="audio/wav", headers={"Cache-Control": "private, max-age=3600"})
+
     @app.get("/api/help/search")
     def search(q: str = "", s: Service = Svc):
         return s.search_help(q)
@@ -225,9 +240,14 @@ def create_app(service: Service | None = None, env=os.environ) -> FastAPI:
         except PaymentError as e:
             return _error(400, "webhook", str(e))
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        """Opening the API server in a browser lands on its interactive docs (Swagger UI)."""
+        return RedirectResponse("/api/docs")
+
     @app.get("/{path:path}", include_in_schema=False)
     def not_found(path: str):
-        return _error(404, "not_found", "The website is served by the Next.js app in web/; this server only answers /api routes.")
+        return _error(404, "not_found", "No such route. This server only answers /api routes; the API docs are at /api/docs and the website is the Next.js app in web/.")
 
     return app
 

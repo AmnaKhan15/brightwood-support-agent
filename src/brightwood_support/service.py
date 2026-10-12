@@ -45,6 +45,7 @@ from .providers import GeminiModel, gemini_configured
 from .rag import HashingEmbedder, load_corpus, semantic_from_env
 from .runlog import RunLog
 from .shop import Shop
+from .speech import Speech, SpeechUnavailable, spoken_text
 from .state import AiBudget, RateLimiter, SandboxRegistry, ping, redis_from_env
 from .telemetry import run_latency, runs_counter, tokens_counter, tool_counter
 from .tools import build_toolbox
@@ -158,6 +159,7 @@ class Service:
         self.idp = BuiltInIdP()
         self.payments = payments_from_env(env)
         self.webhook_secret = env.get("STRIPE_WEBHOOK_SECRET", "")
+        self.speech = Speech(env)
         self.live_model = gemini_configured(env)
         self.price_per_1k = float(env["MODEL_PRICE_PER_1K_TOKENS"]) if env.get("MODEL_PRICE_PER_1K_TOKENS") else None
         self.demo_staff = env_flag(env, "DEMO_STAFF_LOGIN")
@@ -229,6 +231,20 @@ class Service:
         self.create_session(sid)
 
     # --- chat ---------------------------------------------------------------------
+    def speak(self, sid: str, text: str) -> bytes:
+        """A natural-voice WAV of an answer. Repeats come from the cache and cost nothing;
+        new audio counts against the same per-minute limit and daily AI budget as chat."""
+        self.session(sid)
+        words = spoken_text(text or "")
+        if not words:
+            raise ValueError("nothing to say")
+        if self.speech.cached(words) is None:
+            if not self.limiter.allow(f"tts:{sid}", self.per_minute):
+                raise RateLimited("too many voice requests; wait a few seconds")
+            if not self.budget.take():
+                raise SpeechUnavailable("daily AI call cap reached")
+        return self.speech.wav(words)
+
     def chat(self, sid: str, cid: str, text: str, voice: bool = False) -> dict:
         s = self.session(sid)
         text = (text or "").strip()[:MAX_MESSAGE_CHARS]
@@ -618,6 +634,7 @@ class Service:
             "database": self.backend.main.dialect, "redis": ping(self.redis), "jobs": "inline" if jobs.inline() else "redis-queue",
             "payments": self.payments.name, "retrieval": self.help_store.mode, "help_chunks": len(self.help_store),
             "staff_login": "demo" if self.demo_staff else ("access-code" if self.staff_code else "off"),
+            "speech": "gemini" if self.speech.available else "browser",
             "sessions": self.registry.count(), "ai_calls_today": self.budget.used, "ai_daily_cap": self.budget.cap,
             "gateway": self.gateway.report(),
         }

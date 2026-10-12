@@ -13,37 +13,19 @@ greeting card displays, so the words on screen always match the recording.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
-import urllib.request
-import wave
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from brightwood_support.speech import RATE, pcm_to_wav, synthesize  # noqa: E402
+
 GREETING = ROOT / "web" / "src" / "lib" / "greeting.json"
-API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
-
-def synthesize(text: str, voice: str, model: str, key: str) -> bytes:
-    body = {
-        # Only the words to say: a style instruction in the prompt gets read out loud as well.
-        "contents": [{"parts": [{"text": text}]}],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
-        },
-    }
-    req = urllib.request.Request(
-        API.format(model=model), data=json.dumps(body).encode(), method="POST",
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-    )
-    with urllib.request.urlopen(req, timeout=120) as res:
-        data = json.load(res)
-    part = data["candidates"][0]["content"]["parts"][0]["inlineData"]
-    return base64.b64decode(part["data"])  # 16-bit mono PCM at 24 kHz
 
 
 def main() -> None:
@@ -58,15 +40,11 @@ def main() -> None:
         raise SystemExit("Set GEMINI_API_KEY in .env first.")
 
     greeting = json.loads(GREETING.read_text(encoding="utf-8"))
-    pcm = synthesize(greeting["text"], args.voice, args.model, key)
+    pcm = synthesize(greeting["text"], key=key, model=args.model, voice=args.voice, timeout=120)
     out = ROOT / "web" / "public" / greeting["audio"].lstrip("/")
     out.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(out), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(24000)
-        w.writeframes(pcm)
-    print(f"Wrote {out.relative_to(ROOT)}: {len(pcm) / 48000:.1f} s, voice {args.voice}")
+    out.write_bytes(pcm_to_wav(pcm))
+    print(f"Wrote {out.relative_to(ROOT)}: {len(pcm) / (RATE * 2):.1f} s, voice {args.voice}")
 
 
 if __name__ == "__main__":

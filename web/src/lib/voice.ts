@@ -4,7 +4,7 @@
 // Chrome may send the audio to Google to transcribe it; the chat says so the first time.
 
 import { useCallback, useRef, useState } from "react";
-import { useBrowserCheck } from "./storage";
+import { readStored, useBrowserCheck } from "./storage";
 
 type Recognition = {
   lang: string;
@@ -32,22 +32,82 @@ function bestVoice(): SpeechSynthesisVoice | null {
 
 type SpeakEvents = { onStart?: () => void; onEnd?: () => void; onWord?: (charIndex: number) => void };
 
-/** Reads text aloud with the best English voice available. Returns false when the browser has no speech synthesis. */
+const CITATION = /\[[a-z_]+#[a-z0-9-]+\]/g;
+const BULLET = /^\s*(?:[*-]|\d+\.)\s+/gm;
+const CODE = /\b([A-Z]{1,4})(\d{3,})\b/g;
+
+/** The answer as a person would say it: no markdown or citation ids, codes like TRK1003 spelled out.
+ *  Mirrors spoken_text() in the API's speech module. */
+export function spokenText(text: string) {
+  const lines = text.replace(CITATION, "").replace(/\*\*|`|#/g, "").replace(BULLET, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines
+    .map((l) => (/[.!?:]$/.test(l) ? l : `${l}.`))
+    .join(" ")
+    .replace(CODE, (_, letters: string, digits: string) => `${letters.split("").join(" ")} ${digits.split("").join(" ")}`)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,!?:;])/g, "$1")
+    .trim();
+}
+
+/** Reads text aloud with the best English voice the browser has. Returns false when it has none.
+ *  Speaks one sentence at a time: Chrome stops long utterances part-way through. */
 export function speak(text: string, events: SpeakEvents = {}) {
   if (typeof window === "undefined" || !window.speechSynthesis) return false;
   window.speechSynthesis.cancel();
-  const clean = text.replace(/[[a-z_]+#[a-z0-9-]+]/g, "").replace(/O(d{4})/g, "O $1").replace(/[*`]/g, "").replace(/s+/g, " ").trim();
-  const u = new SpeechSynthesisUtterance(clean);
+  const clean = spokenText(text);
+  const sentences = clean.match(/[^.!?]+[.!?]*/g) ?? [clean];
   const v = bestVoice();
-  if (v) u.voice = v;
-  u.rate = 1.02;
-  u.lang = v?.lang || "en-US";
-  u.onstart = () => events.onStart?.();
-  u.onend = () => events.onEnd?.();
-  u.onerror = () => events.onEnd?.();
-  u.onboundary = (e) => e.name === "word" && events.onWord?.(e.charIndex);
-  window.speechSynthesis.speak(u);
+  let offset = 0;
+  sentences.forEach((sentence, i) => {
+    const start = clean.indexOf(sentence, offset);
+    offset = start + sentence.length;
+    const u = new SpeechSynthesisUtterance(sentence);
+    if (v) u.voice = v;
+    u.rate = 1.02;
+    u.lang = v?.lang || "en-US";
+    if (i === 0) u.onstart = () => events.onStart?.();
+    if (i === sentences.length - 1) u.onend = () => events.onEnd?.();
+    u.onerror = (e) => e.error !== "interrupted" && e.error !== "canceled" && events.onEnd?.();
+    u.onboundary = (e) => e.name === "word" && events.onWord?.(start + e.charIndex);
+    window.speechSynthesis.speak(u);
+  });
   return true;
+}
+
+// The answer currently being played in the natural voice, so a new one (or Stop) can cut it off.
+let player: HTMLAudioElement | null = null;
+let turn = 0;
+
+/** Stops whatever is being said, natural voice or browser voice. */
+export function stopSpeaking() {
+  turn++;
+  player?.pause();
+  player = null;
+  if (typeof window !== "undefined") window.speechSynthesis?.cancel();
+}
+
+/** Reads an answer in the natural Gemini voice from /api/tts; falls back to the browser's voice if that is unavailable. */
+export async function speakAnswer(text: string) {
+  stopSpeaking();
+  const mine = turn;
+  // The current sandbox, read now: it may have been renewed while the answer was being written.
+  const session = readStored("bw.sid", "session");
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(session ? { "X-Session": session } : {}) },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`tts ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    if (mine !== turn) return URL.revokeObjectURL(url); // something newer started meanwhile
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    player = audio;
+    await audio.play();
+  } catch {
+    if (mine === turn) speak(text);
+  }
 }
 
 /** Voices load asynchronously in some browsers; wait briefly so the first sentence uses a good one. */
@@ -74,7 +134,7 @@ export function useVoice(onFinal: (text: string) => void, onInterim: (text: stri
   const start = useCallback(() => {
     const Rec = recognitionClass();
     if (!Rec || listening) return;
-    window.speechSynthesis?.cancel();
+    stopSpeaking();
     const r = new Rec();
     r.lang = "en-US";
     r.interimResults = true;

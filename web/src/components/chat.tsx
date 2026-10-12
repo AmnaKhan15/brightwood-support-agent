@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CHIPS } from "@/lib/products";
 import { useStored } from "@/lib/storage";
 import type { ChatResponse, Message } from "@/lib/types";
-import { speak, useVoice } from "@/lib/voice";
+import { speakAnswer, stopSpeaking, useVoice } from "@/lib/voice";
 import { useApp, useAppState } from "./providers";
 import { AGENTS } from "./three/agents";
 import { Pill, StatePill, cx } from "./ui";
@@ -112,7 +112,7 @@ export function Chat() {
         setInspect(r.inspect);
         await qc.invalidateQueries({ queryKey: ["state"] });
         setExtra([]);
-        if (spoken || voiceOut) speak(r.reply);
+        if (spoken || voiceOut) void speakAnswer(r.reply);
       } catch (e) {
         await qc.invalidateQueries({ queryKey: ["state"] });
         setExtra([{ role: "customer", text }, { role: "system", text: (e as Error).message }]);
@@ -134,7 +134,7 @@ export function Chat() {
         if (NO.test(text)) {
           const m = "Okay, I won't do that.";
           setExtra([{ role: "customer", text }, { role: "assistant", text: m }]);
-          speak(m);
+          void speakAnswer(m);
           setInput("");
           return;
         }
@@ -143,7 +143,7 @@ export function Chat() {
         confirm.current = text;
         const m = `Just to check: you said "${text}". Say yes to go ahead, or no to stop.`;
         setExtra([{ role: "customer", text }, { role: "assistant", text: m }]);
-        speak(m);
+        void speakAnswer(m);
         setInput("");
         return;
       }
@@ -210,14 +210,14 @@ export function Chat() {
             </b>
           </div>
           <button type="button" aria-label="Close chat" className="grid size-9 shrink-0 place-items-center rounded-full border border-line transition hover:bg-ink hover:text-bg"
-            onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>
+            onClick={() => { stopSpeaking(); setChatOpen(false); }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
         <div className="flex items-center gap-2 text-xs font-semibold">
           <button type="button" aria-pressed={voiceOut} title="Read answers aloud"
             className={cx("rounded-full border px-3 py-1.5 transition", voiceOut ? "border-ink bg-ink text-bg" : "border-line text-muted hover:border-ink hover:text-ink")}
-            onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) window.speechSynthesis?.cancel(); }}>
+            onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) stopSpeaking(); }}>
             Voice {voiceOut ? "on" : "off"}
           </button>
           <button type="button" className="rounded-full border border-line px-3 py-1.5 text-muted transition hover:border-ink hover:text-ink" onClick={() => setDrawerOpen(true)}>
