@@ -8,7 +8,8 @@ import { useStored } from "@/lib/storage";
 import type { ChatResponse, Message } from "@/lib/types";
 import { speak, useVoice } from "@/lib/voice";
 import { useApp, useAppState } from "./providers";
-import { Button, Pill, StatePill, cx } from "./ui";
+import { AGENTS } from "./three/agents";
+import { Pill, StatePill, cx } from "./ui";
 
 const MONEY = /\b(refund|cancel|money back|reimburse)\b/i;
 const YES = /^(yes|yeah|yep|confirm|go ahead|do it|sure|please do)\b/i;
@@ -24,17 +25,50 @@ function sourceLabel(id: string) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-function withCitations(text: string) {
-  return text.split(/([[a-z_]+#[a-z0-9-]+])/g).map((part, i) =>
-    /^[[a-z_]+#[a-z0-9-]+]$/.test(part) ? (
-      <span key={i} title={`From the help article: ${part.slice(1, -1).split("#")[0].replace(/_/g, " ")}`}
-        className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-brand-soft px-1.5 text-[0.72rem] font-semibold text-brand">
-        Source: {sourceLabel(part.slice(1, -1))}
-      </span>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+const CITATION = /^\[[a-z_]+#[a-z0-9-]+\]$/;
+const INLINE = /(\[[a-z_]+#[a-z0-9-]+\]|\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+const BULLET = /^\s*(?:[*-]|\d+\.)\s+/;
+
+/** Bold, inline code and help citations inside one line of an answer. */
+function inline(text: string) {
+  return text.split(INLINE).map((part, i) => {
+    if (CITATION.test(part)) {
+      const id = part.slice(1, -1);
+      return (
+        <span key={i} title={`From the help article: ${id.split("#")[0].replace(/_/g, " ")}`}
+          className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-accent-soft px-2 text-[0.72rem] font-semibold text-accent">
+          Source: {sourceLabel(id)}
+        </span>
+      );
+    }
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) return <code key={i} className="rounded bg-surface-2 px-1 font-mono text-[0.8em]">{part.slice(1, -1)}</code>;
+    return <span key={i}>{part}</span>;
+  });
+}
+
+/** The model answers in light markdown: paragraphs, bullet lists, **bold** and `code`. Render that, not the symbols. */
+function formatAnswer(text: string) {
+  const blocks: React.ReactNode[] = [];
+  let list: string[] = [];
+  const flush = () => {
+    if (!list.length) return;
+    blocks.push(
+      <ul key={blocks.length} className="flex list-disc flex-col gap-1 pl-5 marker:text-accent">
+        {list.map((item, i) => <li key={i}>{inline(item)}</li>)}
+      </ul>,
+    );
+    list = [];
+  };
+  for (const line of text.split("\n")) {
+    if (BULLET.test(line)) list.push(line.replace(BULLET, ""));
+    else {
+      flush();
+      if (line.trim()) blocks.push(<p key={blocks.length}>{inline(line)}</p>);
+    }
+  }
+  flush();
+  return <div className="flex flex-col gap-2">{blocks}</div>;
 }
 
 export function Chat() {
@@ -138,11 +172,14 @@ export function Chat() {
       <button
         type="button"
         onClick={() => setChatOpen(true)}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-ink shadow-[0_12px_30px_-10px_rgb(0_0_0/0.45)] transition hover:-translate-y-0.5"
+        className="group fixed bottom-5 right-5 z-40 flex items-center gap-2.5 rounded-full bg-ink py-3 pl-3.5 pr-5 text-sm font-semibold text-bg shadow-[0_18px_40px_-14px_rgb(22_21_20/0.6)] transition hover:-translate-y-0.5 hover:bg-accent"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-5.4A8 8 0 1 1 21 12z" />
-        </svg>
+        <span className="relative grid size-7 place-items-center rounded-full bg-bg/15">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-5.4A8 8 0 1 1 21 12z" />
+          </svg>
+          <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-accent ring-2 ring-ink transition group-hover:bg-bg group-hover:ring-accent" />
+        </span>
         Ask support
       </button>
     );
@@ -152,105 +189,131 @@ export function Chat() {
     e.preventDefault();
     void send(input);
   };
+  const first = me?.name.split(" ")[0];
 
   return (
     <section
       aria-label="Support chat"
-      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-md border border-line bg-surface shadow-[0_24px_60px_-20px_rgb(0_0_0/0.35)] sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[660px] sm:w-[420px]"
+      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-[28px] border border-line bg-bg shadow-[0_40px_80px_-30px_rgb(22_21_20/0.45)] sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[680px] sm:w-[430px]"
     >
-      <div className="flex flex-col gap-3 bg-brand px-5 pb-4 pt-5 text-brand-ink">
-        <div className="flex items-center gap-3">
-          <div className="relative grid size-10 shrink-0 place-items-center rounded-full bg-brand-ink/15 font-display text-lg" aria-hidden>
-            B<span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-brand bg-emerald-400" />
+      {/* Header in the site's own voice: wordmark, orange tag line, quiet controls. */}
+      <div className="flex flex-col gap-4 border-b border-line px-5 pb-4 pt-5">
+        <div className="flex items-start gap-3">
+          <div className="relative grid size-11 shrink-0 place-items-center rounded-full bg-ink text-lg font-extrabold text-bg" aria-hidden>
+            B<span className="absolute bottom-0 right-0 size-3 rounded-full bg-ok ring-[3px] ring-bg" />
           </div>
           <div className="min-w-0 flex-1">
-            <b className="block truncate font-display text-lg font-medium">Brightwood support</b>
-            <small className="block truncate opacity-75">Usually replies in seconds · helping {me?.name.split(" ")[0] ?? "you"}</small>
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.26em] text-accent">• Support · online</p>
+            <b className="block truncate text-xl font-extrabold tracking-[-0.03em]">
+              Brightwood<span className="text-accent">.</span>{" "}
+              <span className="font-accent text-[1.35rem] font-normal italic tracking-normal text-muted">support</span>
+            </b>
           </div>
-          <button type="button" aria-label="Close chat" className="grid size-8 place-items-center rounded-full hover:bg-brand-ink/10"
-            onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>✕</button>
+          <button type="button" aria-label="Close chat" className="grid size-9 shrink-0 place-items-center rounded-full border border-line transition hover:bg-ink hover:text-bg"
+            onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
         </div>
-        <div className="flex gap-2 text-xs font-semibold">
-          <button type="button" aria-pressed={voiceOut} title="Read answers aloud" className="rounded-full border border-brand-ink/30 px-3 py-1 hover:bg-brand-ink/10"
+        <div className="flex items-center gap-2 text-xs font-semibold">
+          <button type="button" aria-pressed={voiceOut} title="Read answers aloud"
+            className={cx("rounded-full border px-3 py-1.5 transition", voiceOut ? "border-ink bg-ink text-bg" : "border-line text-muted hover:border-ink hover:text-ink")}
             onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) window.speechSynthesis?.cancel(); }}>
             Voice {voiceOut ? "on" : "off"}
           </button>
-          <button type="button" className="rounded-full border border-brand-ink/30 px-3 py-1 hover:bg-brand-ink/10" onClick={() => setDrawerOpen(true)}>
-            Behind the scenes
+          <button type="button" className="rounded-full border border-line px-3 py-1.5 text-muted transition hover:border-ink hover:text-ink" onClick={() => setDrawerOpen(true)}>
+            Behind the scenes ↗
           </button>
+          <span className="ml-auto truncate text-muted">Helping {first ?? "you"}</span>
         </div>
       </div>
 
-      <div ref={log} data-lenis-prevent className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4" aria-live="polite">
+      <div ref={log} data-lenis-prevent className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-5" aria-live="polite">
         {!bubbles.length && (
-          <div className="max-w-[85%] rounded-md rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm">
-            Hi {me?.name.split(" ")[0] ?? ""}, I&apos;m Brightwood&apos;s support assistant. I can look up your orders, cancel or return them, answer from our help articles, and pass anything bigger to a person.
+          <div className="flex flex-col gap-3">
+            <h3 className="text-2xl leading-tight">
+              Hi{first ? ` ${first}` : ""}, <span className="font-accent font-normal italic text-accent">how can we help?</span>
+            </h3>
+            <p className="max-w-[90%] text-sm leading-relaxed text-muted">
+              I can look up your orders, cancel or return them, answer from our help articles, and pass anything bigger to a person.
+            </p>
           </div>
         )}
         {bubbles.map((b, i) => {
           const isLast = !extra.length && b.id !== undefined && b.id === inspectedId;
+          const agent = isLast ? AGENTS.find((a) => a.id === inspect?.agent) : undefined;
           return (
             <div
               key={i}
               className={cx(
-                "max-w-[85%] whitespace-pre-wrap rounded-md px-3.5 py-2.5 text-sm",
-                b.role === "customer" && "self-end rounded-br-sm bg-ink text-bg",
-                b.role === "assistant" && "rounded-bl-sm border border-line bg-surface-2",
-                b.role === "system" && "self-center bg-warn-soft text-center text-xs",
+                "max-w-[85%] px-4 py-3 text-sm leading-relaxed",
+                b.role === "customer" && "self-end whitespace-pre-wrap rounded-[20px] rounded-br-md bg-ink text-bg",
+                b.role === "assistant" && "rounded-[20px] rounded-bl-md border border-line bg-surface",
+                b.role === "system" && "self-center rounded-full bg-warn-soft px-3 py-1.5 text-center text-xs",
               )}
             >
-              {b.role === "assistant" ? withCitations(b.text) : b.text}
+              {b.role === "assistant" ? formatAnswer(b.text) : b.text}
               {isLast && inspect && (
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
                   <StatePill state={inspect.state} />
-                  {inspect.agent && <Pill tone="brand">Answered by: {inspect.agent.charAt(0).toUpperCase() + inspect.agent.slice(1)} agent</Pill>}
-                  {inspect.provider && <Pill>Model: {inspect.provider.startsWith("gemini") ? "Gemini" : inspect.provider.startsWith("offline") ? "Backup assistant" : inspect.provider}</Pill>}
-                  <button type="button" className="text-xs font-semibold text-brand underline" onClick={() => setDrawerOpen(true)}>See what happened</button>
+                  {inspect.agent && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-bg px-2.5 py-0.5 text-xs font-semibold">
+                      <span className="size-2 rounded-full" style={{ background: agent?.color ?? "var(--accent)" }} />
+                      {inspect.agent.charAt(0).toUpperCase() + inspect.agent.slice(1)} agent
+                    </span>
+                  )}
+                  {inspect.provider && <Pill>{inspect.provider.startsWith("gemini") ? "Gemini" : inspect.provider.startsWith("offline") ? "Backup assistant" : inspect.provider}</Pill>}
+                  <button type="button" className="link-underline ml-auto text-xs font-semibold text-accent" onClick={() => setDrawerOpen(true)}>See what happened</button>
                 </div>
               )}
             </div>
           );
         })}
-        {busy && <div className="typing self-start rounded-md bg-surface-2 px-3 py-2.5" aria-label="Assistant is typing"><i /><i /><i /></div>}
+        {busy && <div className="typing self-start rounded-[20px] rounded-bl-md border border-line bg-surface px-4 py-3" aria-label="Assistant is typing"><i /><i /><i /></div>}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none]">
+      <div className="flex gap-1.5 overflow-x-auto px-4 pb-3 [scrollbar-width:none]">
         {(CHIPS[customer] ?? []).map(([t, warn]) => (
           <button
             key={t}
             type="button"
             onClick={() => void send(t)}
             disabled={busy}
-            className={cx("whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold", warn ? "border-bad/40 text-bad" : "border-line text-muted hover:text-ink")}
+            className={cx("whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition disabled:opacity-50",
+              warn ? "border-accent/40 text-accent hover:bg-accent hover:text-white" : "border-line bg-surface text-muted hover:border-ink hover:text-ink")}
           >
             {t}
           </button>
         ))}
       </div>
-      {voice.note && <div className="px-4 pb-2 text-xs text-muted">{voice.note}</div>}
-      <form onSubmit={submit} className="flex items-center gap-2 border-t border-line p-3">
-        <Button
-          variant={voice.listening ? "solid" : "outline"}
-          size="sm"
-          aria-label="Speak your message"
-          aria-pressed={voice.listening}
-          disabled={!voice.supported}
-          title={voice.supported ? "Speak your message" : "This browser has no speech recognition. Try Chrome, Edge or Safari."}
-          onClick={() => (voice.listening ? voice.stop() : voice.start())}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
-        </Button>
-        <input
-          ref={field}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          maxLength={500}
-          autoComplete="off"
-          placeholder="Ask about an order, a return or a refund"
-          aria-label="Message"
-          className="min-w-0 flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm"
-        />
-        <Button type="submit" variant="solid" size="sm" disabled={busy || !input.trim()}>Send</Button>
+      {voice.note && <div className="px-5 pb-2 text-xs text-muted">{voice.note}</div>}
+      <form onSubmit={submit} className="px-4 pb-4">
+        <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface p-1.5 pl-2 transition focus-within:border-ink">
+          <button
+            type="button"
+            aria-label="Speak your message"
+            aria-pressed={voice.listening}
+            disabled={!voice.supported}
+            title={voice.supported ? "Speak your message" : "This browser has no speech recognition. Try Chrome, Edge or Safari."}
+            onClick={() => (voice.listening ? voice.stop() : voice.start())}
+            className={cx("grid size-9 shrink-0 place-items-center rounded-full transition disabled:opacity-40", voice.listening ? "bg-accent text-white" : "text-muted hover:bg-surface-2 hover:text-ink")}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+          </button>
+          <input
+            ref={field}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            maxLength={500}
+            autoComplete="off"
+            placeholder="Ask about an order, a return or a refund"
+            aria-label="Message"
+            className="min-w-0 flex-1 bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted/80 focus-visible:outline-none"
+          />
+          <button type="submit" aria-label="Send" disabled={busy || !input.trim()}
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-white transition hover:bg-ink disabled:bg-line disabled:text-muted">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 17 17 7M8 7h9v9" /></svg>
+          </button>
+        </div>
       </form>
     </section>
   );
