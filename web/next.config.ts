@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   poweredByHeader: false,
   images: {
+    // Photos come straight from Unsplash's own resizing CDN (see src/lib/image-loader.ts), not /_next/image.
+    loader: "custom",
+    loaderFile: "./src/lib/image-loader.ts",
     // Product photos come from Unsplash's image CDN only.
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/photo-**" }],
   },
