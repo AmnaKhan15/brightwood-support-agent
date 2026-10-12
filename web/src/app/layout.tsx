@@ -6,6 +6,7 @@ import { Inspector } from "@/components/inspector";
 import { SmoothScroll } from "@/components/motion";
 import { Providers } from "@/components/providers";
 import { Toast } from "@/components/toast";
+import { VoiceGreeting } from "@/components/voice-greeting";
 import "lenis/dist/lenis.css";
 import "./globals.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Header />
           <main className="mx-auto w-full max-w-[1400px] px-4 pb-28 pt-8 sm:px-6 lg:px-10">{children}</main>
           <Chat />
+          <VoiceGreeting />
           <Inspector />
           <Toast />
         </Providers>

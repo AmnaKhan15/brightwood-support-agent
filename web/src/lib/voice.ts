@@ -30,16 +30,38 @@ function bestVoice(): SpeechSynthesisVoice | null {
   return voices.sort((a, b) => rank(b) - rank(a))[0] || null;
 }
 
-export function speak(text: string) {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
+type SpeakEvents = { onStart?: () => void; onEnd?: () => void; onWord?: (charIndex: number) => void };
+
+/** Reads text aloud with the best English voice available. Returns false when the browser has no speech synthesis. */
+export function speak(text: string, events: SpeakEvents = {}) {
+  if (typeof window === "undefined" || !window.speechSynthesis) return false;
   window.speechSynthesis.cancel();
-  const clean = text.replace(/\[[a-z_]+#[a-z0-9-]+\]/g, "").replace(/\bO(\d{4})\b/g, "O $1").replace(/\s+/g, " ").trim();
+  const clean = text.replace(/[[a-z_]+#[a-z0-9-]+]/g, "").replace(/O(d{4})/g, "O $1").replace(/[*`]/g, "").replace(/s+/g, " ").trim();
   const u = new SpeechSynthesisUtterance(clean);
   const v = bestVoice();
   if (v) u.voice = v;
   u.rate = 1.02;
   u.lang = v?.lang || "en-US";
+  u.onstart = () => events.onStart?.();
+  u.onend = () => events.onEnd?.();
+  u.onerror = () => events.onEnd?.();
+  u.onboundary = (e) => e.name === "word" && events.onWord?.(e.charIndex);
   window.speechSynthesis.speak(u);
+  return true;
+}
+
+/** Voices load asynchronously in some browsers; wait briefly so the first sentence uses a good one. */
+export function voicesReady(timeout = 1200): Promise<void> {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+  if (!synth || synth.getVoices().length) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      synth.removeEventListener("voiceschanged", done);
+      resolve();
+    };
+    synth.addEventListener("voiceschanged", done);
+    window.setTimeout(done, timeout);
+  });
 }
 
 export function useVoice(onFinal: (text: string) => void, onInterim: (text: string) => void) {
