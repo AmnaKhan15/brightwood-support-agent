@@ -21,10 +21,20 @@ class DeployConfigTests(unittest.TestCase):
         paths = {route.path for route in module.app.routes}
         self.assertTrue({"/api/chat", "/api/tts", "/api/health"} <= paths)
 
-    def test_vercel_config_points_at_the_entry_point(self):
+    def test_vercel_routes_api_to_python_and_the_rest_to_the_website(self):
         config = json.loads((ROOT / "vercel.json").read_text())
-        self.assertIn("app.py", config["functions"])
-        self.assertNotIn("data/", config["functions"]["app.py"]["excludeFiles"])  # the help articles must ship
+        api, web = config["services"]["api"], config["services"]["web"]
+        self.assertEqual((api["root"], api["entrypoint"], web["root"]), (".", "app:app", "web"))
+        self.assertNotIn("data/", api["functions"]["app.py"]["excludeFiles"])  # the help articles must ship
+        # Most specific first: /api/* to the API (which keeps the /api prefix its routes expect), then everything else.
+        self.assertEqual([(r["source"], r["destination"]["service"]) for r in config["rewrites"]],
+                         [("/api/(.*)", "api"), ("/(.*)", "web")])
+
+    def test_stripe_returns_to_the_vercel_site_by_default(self):
+        from brightwood_support.service import Service
+        self.assertEqual(Service(env={"VERCEL_PROJECT_PRODUCTION_URL": "brightwood.vercel.app"}).site_url, "https://brightwood.vercel.app")
+        self.assertEqual(Service(env={"VERCEL_PROJECT_PRODUCTION_URL": "x.vercel.app", "SITE_URL": "https://shop.example/"}).site_url,
+                         "https://shop.example")
 
 
 if __name__ == "__main__":

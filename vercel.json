@@ -1,9 +1,24 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "app.py": {
-      "maxDuration": 60,
-      "excludeFiles": "{web/**,tests/**,evals/**,finetune/**,infra/**,scripts/**,.github/**,**/__pycache__/**,README.md,Dockerfile,render.yaml}"
+  "services": {
+    "api": {
+      "root": ".",
+      "framework": "fastapi",
+      "entrypoint": "app:app",
+      "functions": {
+        "app.py": {
+          "maxDuration": 60,
+          "excludeFiles": "{web/**,tests/**,evals/**,finetune/**,infra/**,scripts/**,.github/**,**/__pycache__/**,README.md,Dockerfile,render.yaml}"
+        }
+      }
+    },
+    "web": {
+      "root": "web",
+      "framework": "nextjs"
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ]
 }

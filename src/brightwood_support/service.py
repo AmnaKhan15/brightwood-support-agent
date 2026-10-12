@@ -155,7 +155,10 @@ class Service:
         self.approvals = workflows.build_approval_graph(self._carry_out, self.checkpointer)
         self.runlog = RunLog(self.backend.main)
         self.checkouts = Checkouts(self.backend.main)
-        self.site_url = env.get("SITE_URL", "http://localhost:3000").rstrip("/")
+        # Where Stripe sends shoppers back to. On Vercel the website and API share one domain, so its
+        # production address is the default; SITE_URL overrides it (for a custom domain, say).
+        vercel_site = f"https://{env['VERCEL_PROJECT_PRODUCTION_URL']}" if env.get("VERCEL_PROJECT_PRODUCTION_URL") else ""
+        self.site_url = (env.get("SITE_URL") or vercel_site or "http://localhost:3000").rstrip("/")
         self.idp = BuiltInIdP()
         self.payments = payments_from_env(env)
         self.webhook_secret = env.get("STRIPE_WEBHOOK_SECRET", "")
