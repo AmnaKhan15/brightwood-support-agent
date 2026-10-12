@@ -5,6 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Hero } from "@/components/hero";
+import { InView, Tilt } from "@/components/motion";
 import { useApp, useHealth } from "@/components/providers";
 import { Button, Note } from "@/components/ui";
 import { cents } from "@/lib/api";
@@ -12,6 +14,14 @@ import { HERO_PHOTO, PHOTOS } from "@/lib/products";
 import type { CheckoutResult, Product } from "@/lib/types";
 
 const MARQUEE = ["Linen", "Oak", "Wool", "Stoneware", "Free returns within 30 days", "Free shipping over $75", "Support in seconds", "Real people for big decisions"];
+
+// The real agent graph (src/brightwood_support/agent.py): who does what, and which tools each one may call.
+const TEAM = [
+  { name: "Supervisor", color: "#f0fdfa", job: "Reads every message first and hands it to the right specialist. If the model is down, keyword rules take over.", tools: ["route"] },
+  { name: "Policy agent", color: "#5eead4", job: "Answers questions about the store's rules from the help articles, and shows the source.", tools: ["search_help", "escalate_to_human"] },
+  { name: "Orders agent", color: "#fbbf24", job: "Tracking, cancellations and return labels, for the signed-in customer's own orders only.", tools: ["get_order", "cancel_order", "send_return_label"] },
+  { name: "Billing agent", color: "#c4b5fd", job: "Refunds up to $50 on its own. Anything larger pauses and waits for a manager's approval.", tools: ["get_order", "request_refund"] },
+];
 
 const STEPS = [
   ["Pick who you are", "Use “You are” at the top. Sam, Priya and Alex each already have orders: delivered, shipped and still processing."],
@@ -60,7 +70,6 @@ export default function Shop() {
   const [buying, setBuying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stripe = health?.payments === "stripe-test";
-  const live = !!health?.mode.includes("gemini");
 
   // Coming back from Stripe's page after pressing "back" there.
   useEffect(() => {
@@ -91,51 +100,58 @@ export default function Shop() {
 
   return (
     <div className="flex flex-col gap-24">
-      {/* Hero: the room photo fills the panel; the headline sits on a soft shade for legibility. */}
-      <section className="relative isolate flex min-h-[78vh] items-end overflow-hidden rounded-md bg-surface-2">
-        <Image src={HERO_PHOTO.src} alt={HERO_PHOTO.alt} fill priority sizes="100vw" className="-z-10 object-cover" />
-        <div className="absolute inset-0 -z-10 bg-gradient-to-t from-black/70 via-black/25 to-black/0" aria-hidden />
-        <div className="flex w-full flex-col gap-8 p-6 text-white sm:p-10 lg:p-14">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-[0.26em] text-white/80">Home goods · Est. 2026</span>
-          <h1 className="max-w-4xl text-5xl leading-[1.02] text-white sm:text-6xl lg:text-7xl">
-            Calm things for the <em className="italic">rooms</em> you live in.
-          </h1>
-          <p className="max-w-xl text-lg leading-relaxed text-white/85">
-            Linen, oak, wool and stoneware, made to be lived with. When something isn&apos;t right, our support team, part AI and part
-            people, sorts it out in seconds.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <a href="#shop" className="inline-flex items-center rounded-md bg-white px-6 py-3 text-sm font-semibold text-[#1d1c1a] hover:bg-white/90">
-              Shop the collection
-            </a>
-            <button type="button" onClick={() => openChat()} className="inline-flex items-center rounded-md border border-white/60 px-6 py-3 text-sm font-semibold text-white backdrop-blur-sm hover:bg-white/10">
-              Get help
-            </button>
-          </div>
-          <ul className="flex flex-wrap gap-x-8 gap-y-2 border-t border-white/25 pt-6 text-sm text-white/85">
-            <li>30-day returns</li>
-            <li>Free shipping over $75</li>
-            <li>Big refunds checked by a person</li>
-            <li className="flex items-center gap-2">
-              <span className={`size-1.5 rounded-full ${health ? "bg-emerald-300" : "bg-amber-300"}`} aria-hidden />
-              {!health ? "Checking support…" : live ? "AI support online" : "Backup assistant answering"}
-            </li>
-          </ul>
-        </div>
-      </section>
+      <Hero />
 
       {/* A slow strip of what the store is about. Decorative, so screen readers skip the duplicate. */}
       <div className="marquee -my-12 overflow-hidden border-y border-line py-5" aria-hidden>
-        <div className="marquee-track flex w-max gap-12 whitespace-nowrap font-display text-2xl text-muted">
+        <div className="marquee-track flex w-max gap-12 whitespace-nowrap text-sm font-semibold uppercase tracking-[0.3em] text-muted">
           {[...MARQUEE, ...MARQUEE].map((word, i) => (
             <span key={i} className="flex items-center gap-12">{word}<span className="text-line">✦</span></span>
           ))}
         </div>
       </div>
 
+      <section className="hero-stage relative isolate -mx-4 overflow-hidden px-5 py-16 text-white sm:-mx-6 sm:px-8 lg:mx-0 lg:rounded-[28px] lg:px-14">
+        <div aria-hidden className="aurora pointer-events-none absolute -right-40 -top-32 -z-10 size-[520px] rounded-full bg-teal-500/15 blur-[120px]" />
+        <InView className="flex flex-wrap items-end justify-between gap-6">
+          <div className="flex flex-col gap-3">
+            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.26em] text-white/45">The team behind the chat</span>
+            <h2 className="max-w-2xl text-4xl leading-tight md:text-5xl">Four agents, one <span className="text-gradient">conversation.</span></h2>
+          </div>
+          <p className="max-w-md text-sm leading-relaxed text-white/60">
+            Built with LangGraph. Each specialist can only use its own tools, and the store&apos;s rules are checked in code underneath the model,
+            so a clever prompt can&apos;t talk it into a refund it isn&apos;t allowed to give.
+          </p>
+        </InView>
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {TEAM.map((m, i) => (
+            <InView key={m.name} delay={i * 0.08}>
+              <div className="glow-border flex h-full flex-col gap-5 rounded-2xl p-6" style={{ ["--glow" as string]: m.color }}>
+                <div className="flex items-center gap-3">
+                  <span className="size-2.5 rounded-full shadow-[0_0_16px_2px_currentColor]" style={{ background: m.color, color: m.color }} />
+                  <h3 className="text-xl text-white">{m.name}</h3>
+                </div>
+                <p className="text-sm leading-relaxed text-white/65">{m.job}</p>
+                <div className="mt-auto flex flex-wrap gap-1.5">
+                  {m.tools.map((t) => (
+                    <span key={t} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[0.7rem] text-white/75">{t}</span>
+                  ))}
+                </div>
+              </div>
+            </InView>
+          ))}
+        </div>
+        <InView className="mt-8 flex justify-center">
+          <button type="button" onClick={() => openChat("I'd like a refund for order O1001", true)}
+            className="rounded-full border border-white/15 bg-white/[0.06] px-5 py-2.5 text-sm font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/[0.12]">
+            Watch them work: ask for a refund →
+          </button>
+        </InView>
+      </section>
+
       <Section eyebrow="Why Brightwood" title="Made well, and looked after when it isn’t.">
         <div className="grid auto-rows-[minmax(190px,auto)] gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div className="relative isolate flex flex-col justify-end overflow-hidden rounded-md p-6 text-white md:col-span-2 lg:row-span-2">
+          <div className="relative isolate flex flex-col justify-end overflow-hidden rounded-2xl p-6 text-white md:col-span-2 lg:row-span-2">
             <Image src={PHOTOS.lamp.src} alt="" fill sizes="(min-width: 1024px) 50vw, 100vw" className="-z-10 object-cover" />
             <div className="absolute inset-0 -z-10 bg-gradient-to-t from-black/75 via-black/30 to-black/5" aria-hidden />
             <div className="mb-6 flex max-w-sm flex-col gap-2 text-sm">
@@ -146,21 +162,21 @@ export default function Shop() {
             <p className="mt-2 max-w-md text-white/85">An AI team answers from your real orders and our real policies, and shows you where every answer came from.</p>
             <button type="button" onClick={() => openChat()} className="mt-4 self-start text-sm font-semibold underline underline-offset-4">Try it now</button>
           </div>
-          <div className="flex flex-col justify-between rounded-md border border-line bg-surface p-6">
-            <span className="font-display text-7xl leading-none">30</span>
+          <div className="flex flex-col justify-between rounded-2xl border border-line bg-surface p-6">
+            <span className="font-display text-7xl font-semibold leading-none tracking-[-0.05em]">30</span>
             <div>
               <h3 className="text-xl">days to change your mind</h3>
               <p className="mt-1 text-sm text-muted">Free prepaid return label. Final-sale items excepted.</p>
             </div>
           </div>
-          <div className="flex flex-col justify-between rounded-md bg-brand p-6 text-brand-ink">
-            <span className="font-display text-7xl leading-none">$0</span>
+          <div className="flex flex-col justify-between rounded-2xl bg-brand p-6 text-brand-ink">
+            <span className="font-display text-7xl font-semibold leading-none tracking-[-0.05em]">$0</span>
             <div>
               <h3 className="text-xl">shipping over $75</h3>
               <p className="mt-1 text-sm opacity-80">Ships within one business day, arrives in 3 to 5.</p>
             </div>
           </div>
-          <div className="flex flex-col justify-between gap-6 rounded-md border border-line bg-surface-2 p-6 md:col-span-2">
+          <div className="flex flex-col justify-between gap-6 rounded-2xl border border-line bg-surface-2 p-6 md:col-span-2">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
               <span className="rounded-full bg-warn-soft px-3 py-1 text-warn">Refund $189 · waiting for a manager</span>
               <span className="text-muted">→</span>
@@ -189,7 +205,8 @@ export default function Shop() {
             const photo = PHOTOS[p.id];
             return (
               <article key={p.id} className="reveal group flex flex-col gap-3">
-                <div className="relative aspect-[4/5] overflow-hidden rounded-md bg-surface-2">
+                <Tilt className="rounded-2xl">
+                <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-surface-2 shadow-[0_30px_60px_-30px_rgb(0_0_0/0.35)]">
                   {photo && (
                     <Image src={photo.src} alt={photo.alt} fill sizes="(min-width: 1536px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                       className="object-cover transition duration-700 group-hover:scale-[1.04]" />
@@ -205,6 +222,7 @@ export default function Shop() {
                     </Button>
                   </div>
                 </div>
+                </Tilt>
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-xl">{p.name}</h3>
                   <span className="whitespace-nowrap tabular-nums">{cents(p.price_cents)}</span>
@@ -232,8 +250,8 @@ export default function Shop() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {TRY_ASKING.map(([q, what]) => (
             <button key={q} type="button" onClick={() => openChat(q, true)}
-              className="group flex min-h-40 flex-col justify-between rounded-md border border-line bg-surface p-5 text-left transition hover:border-ink">
-              <span className="font-display text-2xl leading-snug">“{q}”</span>
+              className="group flex min-h-40 flex-col justify-between rounded-2xl border border-line bg-surface p-5 text-left transition duration-300 hover:-translate-y-1 hover:border-ink hover:shadow-[0_24px_50px_-28px_rgb(0_0_0/0.45)]">
+              <span className="font-display text-2xl font-semibold leading-snug tracking-[-0.03em]">“{q}”</span>
               <span className="flex items-center justify-between text-sm text-muted">
                 {what}<span className="transition group-hover:translate-x-1" aria-hidden>→</span>
               </span>
@@ -250,7 +268,7 @@ export default function Shop() {
         <ol className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([title, text], n) => (
             <li key={title} className="flex flex-col gap-1.5">
-              <span className="font-display text-4xl text-muted">0{n + 1}</span>
+              <span className="font-display text-4xl font-semibold tracking-[-0.04em] text-muted">0{n + 1}</span>
               <h3 className="text-lg">{title}</h3>
               <p className="text-sm leading-relaxed text-muted">{text}</p>
             </li>
@@ -274,7 +292,7 @@ export default function Shop() {
 
       <footer className="grid gap-10 border-t border-line pt-10 text-sm text-muted md:grid-cols-[2fr_1fr_1fr]">
         <div className="flex flex-col gap-3">
-          <span className="font-display text-xl tracking-[0.28em] text-ink">BRIGHTWOOD</span>
+          <span className="font-display text-xl font-bold tracking-[0.28em] text-ink">BRIGHTWOOD</span>
           <p className="max-w-md">
             A made-up store: customers and products are invented and payments are test-mode only. The support agents, their rules and
             their records are real software, built to show how an AI support team can be made safe to run.

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
-/* Brightwood: a calm home-goods brand. Stone and ink neutrals, one deep forest green for actions,
-   an editorial serif for headings, small corners, almost no shadow.
+/* Brightwood: a calm home-goods brand with a living, dark "agent stage" on top.
+   Stone and ink neutrals, one deep forest green for actions, a tight geometric sans for headings.
    Light by default, dark from the system, and a manual override via <html data-theme>. */
 :root {
   --bg: #f7f6f3;
@@ -79,7 +79,7 @@
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
   --font-sans: var(--font-body);
-  --font-display: var(--font-serif);
+  --font-display: var(--font-heading);
   --font-mono: var(--font-jetbrains);
   --shadow-card: var(--shadow);
 }
@@ -96,9 +96,9 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-family: var(--font-heading), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 :focus-visible {
@@ -142,6 +142,70 @@ h3 {
     animation-timeline: view();
     animation-range: entry 0% entry 30%;
   }
+}
+
+/* The hero stage stays dark in both themes, like a lit set. */
+.hero-stage {
+  background: #050807;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+}
+.hero-grid {
+  background-image: linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 60% 40%, black, transparent 75%);
+}
+.hero-spot {
+  background: radial-gradient(520px circle at var(--mx, 70%) var(--my, 30%), rgb(94 234 212 / 0.09), transparent 60%);
+}
+.text-gradient {
+  background: linear-gradient(100deg, #99f6e4 0%, #5eead4 30%, #c4b5fd 70%, #fde68a 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 8s ease-in-out infinite alternate;
+}
+@keyframes shimmer {
+  to { background-position: 100% 0; }
+}
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(80px, 50px) scale(1.15); }
+}
+.aurora { animation: drift 18s ease-in-out infinite; }
+.aurora-2 { animation-duration: 24s; animation-direction: reverse; }
+
+/* A glowing border that slowly circles a card (used on dark agent cards). */
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes spin-angle {
+  to { --angle: 360deg; }
+}
+.glow-border {
+  position: relative;
+  isolation: isolate;
+}
+.glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(from var(--angle), transparent 0deg, var(--glow, #5eead4) 60deg, transparent 120deg, transparent 360deg);
+  animation: spin-angle 6s linear infinite;
+  opacity: 0.55;
+}
+.glow-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: #0b100e;
 }
 
 @media (prefers-reduced-motion: reduce) {

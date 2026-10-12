@@ -181,7 +181,7 @@ export function Chat() {
         </div>
       </div>
 
-      <div ref={log} className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4" aria-live="polite">
+      <div ref={log} data-lenis-prevent className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4" aria-live="polite">
         {!bubbles.length && (
           <div className="max-w-[85%] rounded-md rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm">
             Hi {me?.name.split(" ")[0] ?? ""}, I&apos;m Brightwood&apos;s support assistant. I can look up your orders, cancel or return them, answer from our help articles, and pass anything bigger to a person.

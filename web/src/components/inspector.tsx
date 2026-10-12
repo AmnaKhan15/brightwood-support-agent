@@ -79,7 +79,7 @@ export function Inspector() {
             </button>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div data-lenis-prevent className="flex-1 overflow-y-auto px-5 py-4">
           {tab === "db" ? (
             <Database />
           ) : !i ? (

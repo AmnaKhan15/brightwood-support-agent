@@ -1,13 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, JetBrains_Mono, Newsreader } from "next/font/google";
+import { Instrument_Sans, Inter_Tight, JetBrains_Mono, Newsreader } from "next/font/google";
 import { Chat } from "@/components/chat";
 import { Header } from "@/components/header";
 import { Inspector } from "@/components/inspector";
+import { SmoothScroll } from "@/components/motion";
 import { Providers } from "@/components/providers";
 import { Toast } from "@/components/toast";
+import "lenis/dist/lenis.css";
 import "./globals.css";
 
 const serif = Newsreader({ variable: "--font-serif", subsets: ["latin"], weight: ["400", "500"], style: ["normal", "italic"] });
+const heading = Inter_Tight({ variable: "--font-heading", subsets: ["latin"], weight: ["500", "600", "700"] });
 const body = Instrument_Sans({ variable: "--font-body", subsets: ["latin"] });
 const mono = JetBrains_Mono({ variable: "--font-jetbrains", subsets: ["latin"] });
 
@@ -20,9 +23,10 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${serif.variable} ${body.variable} ${mono.variable} antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${serif.variable} ${heading.variable} ${body.variable} ${mono.variable} antialiased`} suppressHydrationWarning>
       <body className="min-h-dvh font-sans">
         <Providers>
+          <SmoothScroll />
           <Header />
           <main className="mx-auto w-full max-w-[1400px] px-4 pb-28 pt-8 sm:px-6 lg:px-10">{children}</main>
           <Chat />

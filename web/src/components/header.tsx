@@ -22,9 +22,9 @@ export function Header() {
   const pending = data?.pending ?? 0;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-line/60 bg-bg/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-10">
-        <Link href="/" className="font-display text-lg tracking-[0.18em] text-ink sm:text-xl sm:tracking-[0.28em]" aria-label="Brightwood, home">
+        <Link href="/" className="font-display text-lg font-bold tracking-[0.18em] text-ink sm:text-xl sm:tracking-[0.28em]" aria-label="Brightwood, home">
           BRIGHTWOOD
         </Link>
 
@@ -64,12 +64,12 @@ export function Header() {
               </select>
             </label>
           )}
-          <div role="group" aria-label="View the app as" className="flex rounded-md border border-line bg-surface p-0.5">
+          <div role="group" aria-label="View the app as" className="flex rounded-full border border-line bg-surface p-0.5">
             <button
               type="button"
               aria-pressed={!staffMode}
               onClick={() => staffMode && router.push("/")}
-              className={cx("rounded-md px-3 py-1.5 text-sm font-semibold", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("rounded-full px-3.5 py-1.5 text-sm font-semibold transition", !staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Customer
             </button>
@@ -77,7 +77,7 @@ export function Header() {
               type="button"
               aria-pressed={staffMode}
               onClick={() => !staffMode && router.push("/staff")}
-              className={cx("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
+              className={cx("flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition", staffMode ? "bg-brand text-brand-ink" : "text-muted hover:text-ink")}
             >
               Staff
               {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
