@@ -105,7 +105,7 @@ export function Hero() {
 
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 1.05 }} className="flex items-center gap-4">
             <div className="flex -space-x-3" aria-hidden>
-              {[["S", "#d9a441"], ["P", "#5f9277"], ["A", "#8a7f74"]].map(([l, c]) => (
+              {[["S", "#d9a441"], ["M", "#5f9277"], ["A", "#8a7f74"]].map(([l, c]) => (
                 <span key={l} className="grid size-10 place-items-center rounded-full text-sm font-bold text-white ring-[3px] ring-bg" style={{ background: c }}>{l}</span>
               ))}
               <span className="grid size-10 place-items-center rounded-full bg-accent text-[0.7rem] font-extrabold text-white ring-[3px] ring-bg">AI</span>

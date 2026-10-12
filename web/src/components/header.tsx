@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useApp, useAppState } from "./providers";
+import { CustomerPicker } from "./customer-picker";
 import { Button, Pill, cx } from "./ui";
 
 // Pages a customer sees. The staff console has its own mode, chosen with the Customer / Staff switch.
@@ -50,19 +51,10 @@ export function Header() {
           {staffMode ? (
             staff ? <Pill tone="ok">signed in as {staff.role.replace("_", " ")}</Pill> : <Pill>not signed in</Pill>
           ) : (
-            <label className="flex items-center gap-2 text-sm text-muted">
+            <div className="flex items-center gap-2 text-sm text-muted">
               <span className="hidden lg:inline">You are</span>
-              <select
-                aria-label="Which demo customer you are"
-                value={customer}
-                onChange={(e) => setCustomer(e.target.value)}
-                className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm font-semibold text-ink"
-              >
-                {(data?.customers ?? [{ id: "C1", name: "Sam Rivera" }]).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </label>
+              <CustomerPicker customers={data?.customers ?? [{ id: "C1", name: "Sam Rivera" }]} value={customer} onChange={setCustomer} />
+            </div>
           )}
           <div role="group" aria-label="View the app as" className="flex rounded-full border border-line bg-surface p-0.5">
             <button

@@ -24,9 +24,9 @@ const TEAM = [
 ];
 
 const STEPS = [
-  ["Pick who you are", "Use “You are” at the top. Sam, Priya and Alex each already have orders: delivered, shipped and still processing."],
+  ["Pick who you are", "Use “You are” at the top. Sam, Maya and Alex each already have orders: delivered, shipped and still processing."],
   ["Buy something", "Optional. Press Buy on any piece. It’s a test payment, so no real money moves, and the order appears in Your orders."],
-  ["Ask support", "Track an order, cancel it, request a return label or a refund. Try Priya with “Refund order O2001”."],
+  ["Ask support", "Track an order, cancel it, request a return label or a refund. Try Maya with “Refund order O2001”."],
   ["Switch to Staff", "Approve or reject the refunds the AI wasn’t allowed to give on its own: anything over $50."],
 ];
 

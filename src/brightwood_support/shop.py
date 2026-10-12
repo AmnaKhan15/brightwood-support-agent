@@ -99,7 +99,7 @@ class Shop:
         def d(days_ago: int) -> str:
             return (t - timedelta(days=days_ago)).isoformat()
 
-        customers = [("C1", "Sam Rivera", "sam.rivera@example.com"), ("C2", "Priya Nair", "priya.nair@example.com"),
+        customers = [("C1", "Sam Rivera", "sam.rivera@example.com"), ("C2", "Maya Brooks", "maya.brooks@example.com"),
                      ("C3", "Alex Chen", "alex.chen@example.com")]
         for row in customers:
             db.execute("INSERT INTO customers VALUES(?,?,?)", row)
