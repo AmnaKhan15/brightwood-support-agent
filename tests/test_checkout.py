@@ -92,7 +92,7 @@ class SimulatedCheckoutTests(unittest.TestCase):
             self.svc.checkout(self.sid, "C9", "table")
 
     def test_orders_are_per_sandbox(self):
-        self.svc.checkout(self.sid, "C1", "jar")
+        self.svc.checkout(self.sid, "C1", "towels")
         other = self.svc.create_session()
         self.assertEqual(len(self.svc.state(other, "C1")["orders"]), 3)
 
@@ -128,7 +128,7 @@ class StripeCheckoutTests(unittest.TestCase):
             self.svc.confirm_checkout(self.svc.create_session(), session_id)
 
     def test_refund_goes_to_the_real_payment(self):
-        session_id = self.svc.checkout(self.sid, "C1", "jar")["url"].rsplit("/", 1)[1]
+        session_id = self.svc.checkout(self.sid, "C1", "towels")["url"].rsplit("/", 1)[1]
         self.stripe.pay(session_id)
         order_id = self.svc.confirm_checkout(self.sid, session_id)["order_id"]
         self.svc.advance_order(self.sid, "C1", order_id)

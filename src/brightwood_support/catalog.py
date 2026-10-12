@@ -32,7 +32,6 @@ PRODUCTS: tuple[Product, ...] = (
     Product("planter", "Ceramic planter (large)", 6450, "Hand-glazed, with drainage"),
     Product("throw", "Wool throw blanket", 8900, "Lambswool, 130 x 180 cm"),
     Product("lamp", "Ceramic table lamp", 10000, "Linen shade, braided cord"),
-    Product("jar", "Glass storage jar", 1800, "Borosilicate, bamboo lid"),
     Product("mug", "Clearance stoneware mug", 1300, "Last pieces. Final sale", final_sale=True),
     Product("shelf", "Walnut bookshelf", 8800, "Four tiers, flat-pack"),
     Product("towels", "Cotton tea towels", 3600, "Set of four, woven cotton"),
