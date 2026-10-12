@@ -29,7 +29,7 @@ export function Header() {
         </Link>
 
         {!staffMode && (
-          <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
+          <nav aria-label="Main" className="order-3 flex w-full gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] md:order-none md:w-auto">
             {CUSTOMER_NAV.map(([href, label]) => {
               const active = href === "/" ? path === "/" : path.startsWith(href);
               return (

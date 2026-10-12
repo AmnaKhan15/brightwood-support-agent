@@ -192,7 +192,7 @@ h3 {
 .link-underline::after {
   content: "";
   position: absolute;
-  inset: auto 0 -2px 0;
+  inset: auto 0 2px 0; /* inside the link: a scrolling nav would otherwise grow a scrollbar */
   height: 1.5px;
   background: currentColor;
   transform: scaleX(0);
