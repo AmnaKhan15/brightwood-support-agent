@@ -143,7 +143,7 @@ class Service:
                  env=os.environ, clock: Callable[[], float] = time.time, backend: Backend | None = None, redis=None) -> None:
         self.env = env
         self.backend = backend or backend_from_env(env)
-        self.redis = redis if redis is not None else redis_from_env(env)
+        self.redis = redis if redis is not None else redis_from_env(env, self.backend)
         self.registry = SandboxRegistry(self.redis)
         self.limiter = RateLimiter(self.redis, clock)
         self.help_store = self.backend.help_store(HashingEmbedder(), semantic_from_env(env))

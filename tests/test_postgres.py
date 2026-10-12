@@ -16,6 +16,7 @@ from brightwood_support.rag import (
 )
 from brightwood_support.service import HELP_DIR, Service
 from brightwood_support.shop import PolicyError, Shop
+from brightwood_support.state import AiBudget, PgRedis, RateLimiter, SandboxRegistry
 
 URL = os.environ.get("TEST_DATABASE_URL", "")
 ENV = {"DEMO_STAFF_LOGIN": "true", "DATABASE_URL": URL}
@@ -92,3 +93,53 @@ class PostgresTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(URL, "set TEST_DATABASE_URL to run the Postgres tests")
+class PostgresSharedStateTests(unittest.TestCase):
+    """With no Redis, shared state lives in Postgres, so separate serverless copies of the API agree."""
+
+    def setUp(self):
+        self.backend = PostgresBackend(URL)
+        self.now = [1000.0]
+        self.store = PgRedis(self.backend.main, clock=lambda: self.now[0])
+        self.backend.main.script("DELETE FROM kv; DELETE FROM kv_zset; DELETE FROM kv_ttl")
+
+    def tearDown(self):
+        self.backend.close()
+
+    def test_two_api_copies_share_a_visitor_sandbox(self):
+        a = Service(env=ENV)  # no redis passed and no REDIS_URL: Postgres holds the shared state
+        b = Service(env=ENV)
+        self.assertIsInstance(a.redis, PgRedis)
+        sid = a.create_session()
+        r = b.chat(sid, "C2", "Refund order O2001")  # the next request lands on the other copy
+        self.assertEqual(r["state"], "waiting")
+        self.assertEqual(a.state(sid, "C2")["pending"], 1)
+        a.backend.close()
+        b.backend.close()
+
+    def test_rate_limit_is_shared_and_slides(self):
+        first, second = RateLimiter(self.store, lambda: self.now[0]), RateLimiter(self.store, lambda: self.now[0])
+        self.assertEqual([first.allow("chat:x", 2), second.allow("chat:x", 2), first.allow("chat:x", 2)], [True, True, False])
+        self.now[0] += 61
+        self.assertTrue(second.allow("chat:x", 2))
+
+    def test_registry_orders_and_expires_sandboxes(self):
+        reg = SandboxRegistry(self.store)
+        reg.touch("old", 10)
+        reg.touch("new", 20)
+        self.assertEqual((reg.count(), reg.oldest(1), reg.idle_since(15), reg.last_used("new")), (2, ["old"], ["old"], 20.0))
+        reg.remove("old")
+        self.assertEqual(reg.all(), ["new"])
+
+    def test_budget_counter_and_markers(self):
+        budget = AiBudget(2, r=self.store)
+        self.assertEqual([budget.take(), budget.take(), budget.take(), budget.used], [True, True, False, 2])
+        self.assertTrue(self.store.set("deciding", "sam", nx=True, ex=300))
+        self.assertIsNone(self.store.set("deciding", "alex", nx=True, ex=300))  # someone is already deciding
+        self.assertEqual(self.store.exists("deciding"), 1)
+        self.now[0] += 301  # the marker expires on its own
+        self.assertTrue(self.store.set("deciding", "alex", nx=True, ex=300))
+        self.store.delete("deciding")
+        self.assertEqual(self.store.exists("deciding"), 0)

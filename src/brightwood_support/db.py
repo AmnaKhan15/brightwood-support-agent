@@ -221,5 +221,8 @@ class PostgresBackend:
 def backend_from_env(env) -> Backend:
     url = env.get("DATABASE_URL", "")
     if url.startswith(("postgres://", "postgresql://")):
-        return PostgresBackend(url)
+        # Serverless copies come and go: keep no idle connections and only a few per copy.
+        serverless = bool(env.get("VERCEL"))
+        return PostgresBackend(url, min_size=int(env.get("DB_POOL_MIN", 0 if serverless else 1)),
+                               max_size=int(env.get("DB_POOL_MAX", 3 if serverless else 8)))
     return SqliteBackend()

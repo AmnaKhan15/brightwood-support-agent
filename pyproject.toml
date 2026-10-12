@@ -3,6 +3,32 @@ name = "brightwood-support-agent"
 version = "2.0.0"
 description = "A multi-agent customer support system with human approval for money, built to be safe to run."
 requires-python = ">=3.12"
+# Runtime dependencies, the same list as requirements.txt (Vercel reads this file; Docker and CI read
+# requirements.txt). tests/test_deploy_config.py fails if the two lists drift apart.
+dependencies = [
+    "fastapi>=0.143,<1",
+    "uvicorn>=0.54,<1",
+    "pydantic>=2.14,<3",
+    "python-dotenv>=1.2,<2",
+    "PyJWT>=2.8,<3",
+    "cryptography>=42",
+    "langgraph>=1.2,<2",
+    "langgraph-checkpoint-postgres>=3.1,<4",
+    "langchain-core>=1.6,<2",
+    "langchain-google-genai>=4.4,<5",
+    "psycopg[binary]>=3.3,<4",
+    "psycopg-pool>=3.3,<4",
+    "redis>=8.1,<9",
+    "fakeredis>=2.39,<3",
+    "dramatiq[redis]>=2.2,<3",
+    "opentelemetry-sdk>=1.45,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.45,<2",
+    "opentelemetry-instrumentation-fastapi>=0.66b1",
+    "langsmith>=0.14,<1",
+]
+
+[tool.vercel]
+entrypoint = "app:app"
 
 [tool.ruff]
 line-length = 160
