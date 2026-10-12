@@ -54,13 +54,16 @@ export function Hero() {
   return (
     <>
       {/* Edge to edge: the section spans the whole viewport, wider than the page column it sits in. */}
-      <section className="relative isolate left-1/2 -mt-8 flex min-h-[calc(100svh-4rem)] w-[calc(100vw-var(--sbw,0px))] -translate-x-1/2 flex-col justify-between overflow-hidden bg-bg px-6 pb-8 pt-10 sm:px-12 lg:px-16">
+      <section className="relative isolate left-1/2 -mt-8 flex min-h-[calc(100svh-4rem)] w-[calc(100vw-var(--sbw,0px))] -translate-x-1/2 flex-col overflow-hidden bg-bg pb-8 pt-10">
         {/* Soft cream fades keep the text readable; the artwork in the middle and right stays clear. */}
-        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-0 hidden w-[42%] bg-gradient-to-r from-bg via-bg/90 to-transparent lg:block" />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-0 hidden w-[max(42%,calc((100%-1400px)/2+640px))] bg-gradient-to-r from-bg via-bg/90 to-transparent lg:block" />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-0 h-28 bg-gradient-to-b from-bg via-bg/60 to-transparent lg:h-36" />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-40 bg-gradient-to-t from-bg via-bg/80 to-transparent lg:h-48" />
         <div aria-hidden className="aurora pointer-events-none absolute right-[18%] top-1/4 -z-20 size-[520px] rounded-full bg-accent/15 blur-[120px]" />
 
+        {/* Same column as the header and the page below, so the text lines up with them.
+            Not positioned itself, so the artwork's absolute layer still spans the whole section. */}
+        <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-between px-4 sm:px-6 lg:px-10">
         <div className="relative z-10 my-auto flex max-w-xl flex-col gap-7 py-6">
           <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
             className="text-xs font-bold uppercase tracking-[0.3em] text-accent">
@@ -120,7 +123,7 @@ export function Hero() {
 
         {/* The artwork: the live agent graph. Behind the text on large screens, below it on small ones. */}
         <motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
-          className="relative -mx-6 h-[380px] sm:-mx-12 sm:h-[460px] lg:absolute lg:inset-y-0 lg:right-0 lg:-z-10 lg:mx-0 lg:h-auto lg:w-[68%]">
+          className="relative -mx-4 h-[380px] sm:-mx-6 sm:h-[460px] lg:absolute lg:inset-y-0 lg:right-0 lg:-z-10 lg:mx-0 lg:h-auto lg:w-[68%]">
           <AgentScene active={agent} pulse={inspect?.run_id ?? 0} onPick={ask} />
         </motion.div>
 
@@ -140,6 +143,7 @@ export function Hero() {
             )}
           </span>
           <span className="hidden text-muted sm:block">30-day returns · Free shipping over $75</span>
+        </div>
         </div>
       </section>
 
