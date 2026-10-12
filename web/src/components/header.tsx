@@ -24,7 +24,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-10">
-        <Link href="/" className="font-display text-xl tracking-[0.28em] text-ink" aria-label="Brightwood, home">
+        <Link href="/" className="font-display text-lg tracking-[0.18em] text-ink sm:text-xl sm:tracking-[0.28em]" aria-label="Brightwood, home">
           BRIGHTWOOD
         </Link>
 
@@ -83,7 +83,10 @@ export function Header() {
               {pending > 0 && <span className="rounded-full bg-warn px-1.5 text-xs font-bold text-white" aria-label={`${pending} refunds waiting`}>{pending}</span>}
             </button>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => resetSandbox()} disabled={!ready} title="Start over: fresh demo orders, an empty chat and no approvals">Reset demo</Button>
+          <Button size="sm" variant="ghost" onClick={() => resetSandbox()} disabled={!ready} title="Start over: fresh demo orders, an empty chat and no approvals" aria-label="Reset demo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="lg:hidden"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+            <span className="hidden lg:inline">Reset demo</span>
+          </Button>
           <Button size="sm" variant="ghost" onClick={toggleTheme} aria-label="Switch light and dark theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
               <circle cx="12" cy="12" r="4" />

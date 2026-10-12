@@ -3,9 +3,28 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useApp, useAppState } from "@/components/providers";
-import { Button, Eyebrow, Note, Pill } from "@/components/ui";
+import Image from "next/image";
+import { Button, Eyebrow, Note, Pill, cx } from "@/components/ui";
+import { photoForItem } from "@/lib/products";
 
 const STATUS_TONE = { delivered: "ok", cancelled: "neutral", shipped: "brand", processing: "wait" } as const;
+const STAGES = ["Placed", "Shipped", "Delivered"];
+
+/** Placed → Shipped → Delivered, filled up to the order's current stage. */
+function Progress({ status }: { status: string }) {
+  if (status === "cancelled") return <p className="text-sm text-muted">Cancelled before shipping · refunded in full</p>;
+  const reached = { processing: 0, shipped: 1, delivered: 2 }[status] ?? 0;
+  return (
+    <ol className="grid grid-cols-3 gap-1.5" aria-label={`Order progress: ${STAGES[reached]}`}>
+      {STAGES.map((stage, i) => (
+        <li key={stage} className="flex flex-col gap-1.5">
+          <span className={cx("h-1 rounded-full", i <= reached ? "bg-brand" : "bg-line")} />
+          <span className={cx("text-xs", i <= reached ? "text-ink" : "text-muted")}>{stage}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export default function Orders() {
   const { api, openChat, customer, notify, ready } = useApp();
@@ -62,16 +81,26 @@ export default function Orders() {
         {data.orders?.map((o) => {
           const refunds = data.refunds.filter((r) => r.order_id === o.order_id);
           return (
-            <article key={o.order_id} className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5 shadow-card">
-              <h2 className="flex items-center justify-between gap-2 text-lg font-bold">
-                <span className="font-mono">{o.order_id}</span>
+            <article key={o.order_id} className="flex flex-col gap-4 rounded-md border border-line bg-surface p-5">
+              <h2 className="flex items-center justify-between gap-2 text-lg">
+                <span className="font-mono text-base tracking-wide">Order {o.order_id}</span>
                 <Pill tone={STATUS_TONE[o.status as keyof typeof STATUS_TONE] ?? "neutral"}>{o.status}</Pill>
               </h2>
-              <ul className="flex flex-col gap-1 text-sm">
-                {o.items.map((i) => (
-                  <li key={i.name} className="flex justify-between gap-2"><span>{i.name}</span><span className="text-muted">{i.price}</span></li>
-                ))}
+              <ul className="flex flex-col gap-3">
+                {o.items.map((i) => {
+                  const photo = photoForItem(i.name);
+                  return (
+                    <li key={i.name} className="flex items-center gap-3">
+                      <span className="relative size-16 shrink-0 overflow-hidden rounded-md bg-surface-2">
+                        {photo && <Image src={photo.src} alt="" fill sizes="64px" className="object-cover" />}
+                      </span>
+                      <span className="min-w-0 flex-1 font-display text-lg leading-tight">{i.name}</span>
+                      <span className="tabular-nums text-muted">{i.price}</span>
+                    </li>
+                  );
+                })}
               </ul>
+              <Progress status={o.status} />
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 <dt className="text-muted">Total</dt><dd className="font-semibold">{o.total}</dd>
                 <dt className="text-muted">Placed</dt><dd>{o.placed_on}</dd>

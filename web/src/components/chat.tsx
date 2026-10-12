@@ -138,7 +138,7 @@ export function Chat() {
       <button
         type="button"
         onClick={() => setChatOpen(true)}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-ink shadow-card hover:opacity-90"
+        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-ink shadow-[0_12px_30px_-10px_rgb(0_0_0/0.45)] transition hover:-translate-y-0.5"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-5.4A8 8 0 1 1 21 12z" />
@@ -156,25 +156,28 @@ export function Chat() {
   return (
     <section
       aria-label="Support chat"
-      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-md border border-line bg-surface shadow-card sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[640px] sm:w-[400px]"
+      className="fixed inset-x-2 bottom-2 z-40 flex max-h-[85vh] flex-col overflow-hidden rounded-md border border-line bg-surface shadow-[0_24px_60px_-20px_rgb(0_0_0/0.35)] sm:inset-x-auto sm:right-5 sm:bottom-5 sm:h-[660px] sm:w-[420px]"
     >
-      <div className="flex flex-col gap-2 border-b border-line px-4 py-3">
+      <div className="flex flex-col gap-3 bg-brand px-5 pb-4 pt-5 text-brand-ink">
         <div className="flex items-center gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-md bg-brand-soft text-brand" aria-hidden>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="7" width="16" height="12" rx="4" /><path d="M12 7V4M9 13h.01M15 13h.01" /></svg>
+          <div className="relative grid size-10 shrink-0 place-items-center rounded-full bg-brand-ink/15 font-display text-lg" aria-hidden>
+            B<span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-brand bg-emerald-400" />
           </div>
           <div className="min-w-0 flex-1">
-            <b className="block truncate">Brightwood support</b>
-            <small className="block truncate text-muted">{me?.name ?? "…"} · AI assistant</small>
+            <b className="block truncate font-display text-lg font-medium">Brightwood support</b>
+            <small className="block truncate opacity-75">Usually replies in seconds · helping {me?.name.split(" ")[0] ?? "you"}</small>
           </div>
-          <Button size="sm" variant="ghost" aria-label="Close chat" onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>✕</Button>
+          <button type="button" aria-label="Close chat" className="grid size-8 place-items-center rounded-full hover:bg-brand-ink/10"
+            onClick={() => { window.speechSynthesis?.cancel(); setChatOpen(false); }}>✕</button>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" aria-pressed={voiceOut} title="Read answers aloud"
+        <div className="flex gap-2 text-xs font-semibold">
+          <button type="button" aria-pressed={voiceOut} title="Read answers aloud" className="rounded-full border border-brand-ink/30 px-3 py-1 hover:bg-brand-ink/10"
             onClick={() => { setVoiceStored(voiceOut ? "0" : "1"); if (voiceOut) window.speechSynthesis?.cancel(); }}>
-            Voice: {voiceOut ? "on" : "off"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setDrawerOpen(true)}>Behind the scenes</Button>
+            Voice {voiceOut ? "on" : "off"}
+          </button>
+          <button type="button" className="rounded-full border border-brand-ink/30 px-3 py-1 hover:bg-brand-ink/10" onClick={() => setDrawerOpen(true)}>
+            Behind the scenes
+          </button>
         </div>
       </div>
 
@@ -191,8 +194,8 @@ export function Chat() {
               key={i}
               className={cx(
                 "max-w-[85%] whitespace-pre-wrap rounded-md px-3.5 py-2.5 text-sm",
-                b.role === "customer" && "self-end rounded-tr-sm bg-brand text-brand-ink",
-                b.role === "assistant" && "rounded-tl-sm bg-surface-2",
+                b.role === "customer" && "self-end rounded-br-sm bg-ink text-bg",
+                b.role === "assistant" && "rounded-bl-sm border border-line bg-surface-2",
                 b.role === "system" && "self-center bg-warn-soft text-center text-xs",
               )}
             >
